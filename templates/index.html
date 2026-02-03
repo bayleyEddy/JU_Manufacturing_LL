@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Student Check-In</title>
+    <style>
+        body { font-family: Arial; margin: 40px; }
+        input { width: 200px; padding: 5px; margin-bottom: 10px; }
+        button { padding: 8px 15px; }
+        #alertBox {
+            display: none;
+            padding: 10px;
+            background-color: lightblue;
+            margin-top: 20px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Student Check-In</h2>
+
+    <form id="checkinForm">
+        <label>Student ID:</label><br>
+        <input type="text" name="student_id" required><br>
+        <button type="submit">Check In / Out</button>
+    </form>
+
+    <div id="alertBox"></div>
+
+    <script>
+        document.getElementById("checkinForm").addEventListener("submit", async function(e) {
+            e.preventDefault();
+
+            const formData = new FormData(this);
+
+            const response = await fetch("/checkin", {
+                method: "POST",
+                body: formData
+            });
+
+            const data = await response.json();
+
+            const alertBox = document.getElementById("alertBox");
+            alertBox.textContent = data.message;
+            alertBox.style.display = "block";
+
+            setTimeout(() => {
+                alertBox.style.display = "none";
+            }, 5000);
+        });
+    </script>
+
+</body>
+</html>
