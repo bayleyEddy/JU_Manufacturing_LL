@@ -21,14 +21,44 @@
 
     <form id="checkinForm">
         <label>Student ID:</label><br>
-        <input type="text" name="student_id" required><br>
+        <input type="text" id="student_id" name="student_id" required autofocus><br>
         <button type="submit">Check In / Out</button>
     </form>
 
     <div id="alertBox"></div>
 
     <script>
-        document.getElementById("checkinForm").addEventListener("submit", async function(e) {
+        const input = document.getElementById("student_id");
+        const form = document.getElementById("checkinForm");
+
+        input.addEventListener("input", function () {
+            let raw = this.value;
+
+            // Only process when Track 2 is fully present
+            if (raw.includes(";") && raw.includes("=") && raw.endsWith("?")) {
+
+                // Extract Track 2
+                let track2 = raw.split(";")[1];
+
+                // Split into PAN and discretionary data
+                let parts = track2.split("=");
+
+                let discretionary = parts[1].replace("?", ""); // remove end sentinel
+
+                // Extract the LAST 6 digits of discretionary data
+                let id = discretionary.slice(-6);
+
+                this.value = id;
+
+                // Stop further typing
+                this.blur();
+
+                // Auto-submit
+                form.requestSubmit();
+            }
+        });
+
+        form.addEventListener("submit", async function(e) {
             e.preventDefault();
 
             const formData = new FormData(this);
@@ -46,6 +76,8 @@
 
             setTimeout(() => {
                 alertBox.style.display = "none";
+                input.value = "";
+                input.focus();
             }, 5000);
         });
     </script>

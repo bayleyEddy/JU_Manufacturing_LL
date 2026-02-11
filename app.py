@@ -134,6 +134,11 @@ def checkin():
     # retrieves data sent from the HTML form
     student_id = request.form.get("student_id")
 
+    # Added to clean up the output of the card swipe
+    if ";" in student_id and "=" in student_id:
+        track2 = student_id.split(";")[1]
+        student_id = track2.split("=")[0]
+
     connect_to_db = sqlite3.connect(DB_Path)
     db_cursor = connect_to_db.cursor()
 
