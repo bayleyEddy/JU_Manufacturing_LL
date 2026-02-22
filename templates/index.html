@@ -3,13 +3,31 @@
 <head>
     <title>Student Check-In</title>
     <style>
-        body { font-family: Arial; margin: 40px; }
-        input { width: 200px; padding: 5px; margin-bottom: 10px; }
+        body { 
+            font-family: Arial; 
+            margin: 0; 
+            display: grid; 
+            place-items: center; 
+            background: url("https://th.bing.com/th/id/R.c68a0adc6b1cda1afd68f598bc8c1982?rik=dtSitLhNDLT9Zw&riu=http%3a%2f%2fwww.pbh2.com%2fwordpress%2fwp-content%2fuploads%2f2013%2f07%2fBear-GIFS-russian-dancing-bear.gif&ehk=zqg6p8AF%2frSj3U42ExXOMh20dg5xEHzX9xngsLAOIo4%3d&risl=&pid=ImgRaw&r=0") no-repeat center center fixed;
+            background-size: cover;
+            height: 100vh;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            text-align: center;
+            width: 300px;
+        }
+
+        input { width: 200px; padding: 5px; margin-bottom: 10px;}
         button { padding: 8px 15px; }
         #alertBox {
             display: none;
             padding: 10px;
-            background-color: lightblue;
+            background-color: gold;
             margin-top: 20px;
             border-radius: 5px;
         }
@@ -17,47 +35,41 @@
 </head>
 <body>
 
-    <h2>Student Check-In</h2>
+    <div class="container">
 
-    <form id="checkinForm">
-        <label>Student ID:</label><br>
-        <input type="text" id="student_id" name="student_id" required autofocus><br>
-        <button type="submit">Check In / Out</button>
-    </form>
+        <h2>Student Check-In</h2>
 
-    <div id="alertBox"></div>
+        <form id="checkinForm">
+            <label>Student ID:</label><br>
+            <input type="text" id="student_id" name="student_id" required autofocus><br>
+            <button type="submit">Check In / Out</button>
+        </form>
+
+        <div id="alertBox"></div>
+
+    </div>
 
     <script>
         const input = document.getElementById("student_id");
         const form = document.getElementById("checkinForm");
 
+        // Auto-process card swipe
         input.addEventListener("input", function () {
             let raw = this.value;
 
-            // Only process when Track 2 is fully present
             if (raw.includes(";") && raw.includes("=") && raw.endsWith("?")) {
-
-                // Extract Track 2
                 let track2 = raw.split(";")[1];
-
-                // Split into PAN and discretionary data
                 let parts = track2.split("=");
-
-                let discretionary = parts[1].replace("?", ""); // remove end sentinel
-
-                // Extract the LAST 6 digits of discretionary data
+                let discretionary = parts[1].replace("?", "");
                 let id = discretionary.slice(-6);
 
                 this.value = id;
-
-                // Stop further typing
                 this.blur();
-
-                // Auto-submit
                 form.requestSubmit();
             }
         });
 
+        // Submit handler with redirect support
         form.addEventListener("submit", async function(e) {
             e.preventDefault();
 
@@ -73,6 +85,13 @@
             const alertBox = document.getElementById("alertBox");
             alertBox.textContent = data.message;
             alertBox.style.display = "block";
+
+            // Redirect ONLY if the user is NOT a regular student
+            if (data.redirect && !data.redirect.includes("student_home")) {
+                setTimeout(() => {
+                    window.location.href = data.redirect;
+                }, 1200);
+            }
 
             setTimeout(() => {
                 alertBox.style.display = "none";
