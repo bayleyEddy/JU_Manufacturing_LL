@@ -33,7 +33,7 @@ def home():
     return render_template("index.html")
 
 # ---------------------------------------------------------
-# Check-In / Check-Out Route (with Roles)
+# Check-In / Check-Out Route (NO User_Roles table)
 # ---------------------------------------------------------
 @app.route("/checkin", methods=["POST"])
 def checkin():
@@ -56,53 +56,60 @@ def checkin():
         cursor = conn.cursor()
 
         # -------------------------------------------------
-        # Determine User Role
+        # 1. CHECK PROFESSOR TABLE
         # -------------------------------------------------
         cursor.execute("""
-            SELECT Role
-            FROM dbo.User_Roles
-            WHERE User_ID = ?
+            SELECT FirstName, LastName
+            FROM dbo.Professor
+            WHERE Teacher_ID = ?
         """, student_id)
 
-        role_row = cursor.fetchone()
-        role = role_row[0] if role_row else "Student"
+        prof = cursor.fetchone()
 
-        # -------------------------------------------------
-        # Lookup user based on role
-        # -------------------------------------------------
-        if role == "Professor":
-            cursor.execute("""
-                SELECT FirstName, LastName
-                FROM dbo.Professor
-                WHERE Teacher_ID = ?
-            """, student_id)
-
-            prof = cursor.fetchone()
-            if not prof:
-                conn.close()
-                return {"message": "Professor ID not found"}
-
+        if prof:
+            role = "Professor"
             first_name, last_name = prof
             waiver = 1  # professors always allowed
 
         else:
-            # Student or StudentWorker
+            # -------------------------------------------------
+            # 2. CHECK STUDENT WORKER TABLE
+            # -------------------------------------------------
             cursor.execute("""
-                SELECT First_Name, Last_Name, Liability_Waivers
-                FROM dbo.Student
-                WHERE Student_ID = ?
+                SELECT Worker_FirstName, Worker_LastName
+                FROM dbo.Student_Worker
+                WHERE Worker_ID = ?
             """, student_id)
 
-            student = cursor.fetchone()
-            if not student:
-                conn.close()
-                return {"message": "Student ID not found"}
+            worker = cursor.fetchone()
 
-            first_name, last_name, waiver = student
+            if worker:
+                role = "StudentWorker"
+                first_name, last_name = worker
+                waiver = 1  # workers always allowed
 
-            if waiver is None or waiver == 0:
-                conn.close()
-                return {"message": f"{first_name} {last_name} cannot check in - liability waiver"}
+            else:
+                # -------------------------------------------------
+                # 3. CHECK STUDENT TABLE
+                # -------------------------------------------------
+                cursor.execute("""
+                    SELECT First_Name, Last_Name, Liability_Waivers
+                    FROM dbo.Student
+                    WHERE Student_ID = ?
+                """, student_id)
+
+                student = cursor.fetchone()
+
+                if not student:
+                    conn.close()
+                    return {"message": "ID not found in system"}
+
+                first_name, last_name, waiver = student
+                role = "Student"
+
+                if waiver is None or waiver == 0:
+                    conn.close()
+                    return {"message": f"{first_name} {last_name} cannot check in - liability waiver"}
 
         # -------------------------------------------------
         # Check if user is already logged in
