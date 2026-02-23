@@ -1,7 +1,34 @@
-# Setup Instructions:
-## Professor will need to run the python script within Visual Studio Code in order for webpage to appear (click the play arrow in the top corner), all other code needs to be in its proper folders as well 
-  ### Have a valid student ID card or the associated ID number
-  ### Ensure that you have signed the waiver as instructed by your professor, if failed to do so then entry will not be prohibited
-  ### When entering classroom swipe your student ID and ensure that it was successful through the pop-up box (or enter student ID number manually if card reader fails).
-  ### When exiting the classroom swipe your student ID again to logout (or enter student ID number manually if card reader fails).
-## When the webpage appears pages will vary by user later on, however with our current implementation all user roles (Students, Professor, and Student-Worker) are logged in and out
+# Lab Check-In System 
+A Flask-based web application that allows students, student workers, and professors to check in and out of a university lab using their ID cards. Attendance is logged to an Azure SQL Database, and users with elevated roles (professors and student workers) are redirected to their respective dashboards. 
+---
+## Features
+- **Card swipe supported**
+- **Role-based logic**
+  - Students: Check-in/out (no redirect)
+  - Student Workers: Redirected to worker dashboard (manages signed-in students)
+  - Professors: Redirected to professor dashboard (manage student profiles)
+- **Azure SQL Database integrated**
+- **Attendance Logging**
+- **Liability waiver enforcement for students**
+---
+## Required
+To successfully run this program, you'll need:
+- Python 3.8+
+- pip (Python package manager)
+- ODBC Driver 17 for SQL Server
+---
+## How to run the program:
+- Open the app.py script and run it, within the terminal a url will appear. Once this happens the user will need to ctrl + click this and will be redirected to the programs home page.
+---
+## Database Overview:
+- dbo.Student
+  - Stores student information such as their name, student ID number, and if the waiver was signed
+- dbo.Professor
+  - Stores professor information such as name and ID number
+- dbo.User_Roles
+  - Maps user IDs to their respective roles such as:
+    - Student
+    - Student Worker
+    - Professor
+- dbo.Attendance_Log
+  - Stores the timestamps of all user types signing in/out
