@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Professor Dashboard</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        #results { margin-top: 20px; padding: 10px; border: 1px solid #ccc; }
+        .logout-btn {
+            background-color: red;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Professor Dashboard</h1>
+
+<!-- REAL Logout Button -->
+<a href="/professor_logout">
+    <button class="logout-btn">Logout</button>
+</a>
+
+<hr>
+
+<h3>Search Student Profile</h3>
+
+<form id="searchForm">
+    <label>Student ID:</label>
+    <input type="text" id="student_id" name="student_id" required>
+    <button type="submit">Search</button>
+</form>
+
+<div id="results"></div>
+
+<script>
+    const form = document.getElementById("searchForm");
+    const results = document.getElementById("results");
+
+    form.addEventListener("submit", async function(e) {
+        e.preventDefault();
+
+        const formData = new FormData(form);
+
+        const response = await fetch("/professor_search", {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+            results.innerHTML = `<p style='color:red;'>${data.error}</p>`;
+            return;
+        }
+
+        let html = `
+            <h3>Student Profile</h3>
+            <p><strong>Name:</strong> ${data.first_name} ${data.last_name}</p>
+            <p><strong>ID:</strong> ${data.student_id}</p>
+            <p><strong>Waiver Signed:</strong> ${data.waiver}</p>
+            <h4>Attendance History</h4>
+        `;
+
+        if (data.logs.length === 0) {
+            html += "<p>No attendance records found.</p>";
+        } else {
+            html += "<ul>";
+            data.logs.forEach(log => {
+                html += `<li>Login: ${log.login} — Logout: ${log.logout}</li>`;
+            });
+            html += "</ul>";
+        }
+
+        results.innerHTML = html;
+    });
+</script>
+
+</body>
+</html>

@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, redirect
 import pyodbc
 from datetime import datetime
 
@@ -26,6 +26,11 @@ def connect_db():
     )
 
 # ---------------------------------------------------------
+# TEMPORARY STORAGE FOR PROFESSOR ID (simple + no sessions)
+# ---------------------------------------------------------
+current_professor_id = None
+
+# ---------------------------------------------------------
 # Home Page
 # ---------------------------------------------------------
 @app.route("/", methods=["GET"])
@@ -33,10 +38,12 @@ def home():
     return render_template("index.html")
 
 # ---------------------------------------------------------
-# Check-In / Check-Out Route (NO User_Roles table)
+# Check-In / Check-Out Route
 # ---------------------------------------------------------
 @app.route("/checkin", methods=["POST"])
 def checkin():
+    global current_professor_id
+
     student_id = request.form.get("student_id")
 
     # Clean swipe if raw track data appears
@@ -69,7 +76,10 @@ def checkin():
         if prof:
             role = "Professor"
             first_name, last_name = prof
-            waiver = 1  # professors always allowed
+            waiver = 1
+
+            # ⭐ Store professor ID for logout button
+            current_professor_id = student_id
 
         else:
             # -------------------------------------------------
@@ -86,7 +96,7 @@ def checkin():
             if worker:
                 role = "StudentWorker"
                 first_name, last_name = worker
-                waiver = 1  # workers always allowed
+                waiver = 1
 
             else:
                 # -------------------------------------------------
@@ -173,12 +183,104 @@ def checkin():
         return {"message": f"Database Error: {str(e)}"}
 
 # ---------------------------------------------------------
-# Role-Based Homepages
+# Professor Dashboard
 # ---------------------------------------------------------
 @app.route("/professor_home")
 def professor_home():
-    return "<h1>Professor Dashboard</h1>"
+    return render_template("professor_home.html")
 
+# ---------------------------------------------------------
+# Professor Search Route
+# ---------------------------------------------------------
+@app.route("/professor_search", methods=["POST"])
+def professor_search():
+    student_id = request.form.get("student_id")
+
+    try:
+        student_id = int(student_id)
+    except:
+        return {"error": "Invalid student ID format"}
+
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT First_Name, Last_Name, Liability_Waivers
+            FROM dbo.Student
+            WHERE Student_ID = ?
+        """, student_id)
+
+        student = cursor.fetchone()
+
+        if not student:
+            conn.close()
+            return {"error": "Student not found"}
+
+        first_name, last_name, waiver = student
+        waiver_text = "Yes" if waiver == 1 else "No"
+
+        cursor.execute("""
+            SELECT LoginTime, LogoutTime
+            FROM dbo.Attendance_Log
+            WHERE Attendance_ID = ?
+            ORDER BY LoginTime DESC
+        """, student_id)
+
+        logs = cursor.fetchall()
+        conn.close()
+
+        log_list = []
+        for log in logs:
+            log_list.append({
+                "login": str(log[0]),
+                "logout": str(log[1]) if log[1] else "Still logged in"
+            })
+
+        return {
+            "first_name": first_name,
+            "last_name": last_name,
+            "student_id": student_id,
+            "waiver": waiver_text,
+            "logs": log_list
+        }
+
+    except Exception as e:
+        return {"error": f"Database Error: {str(e)}"}
+
+# ---------------------------------------------------------
+# Logs out professor + redirects
+# ---------------------------------------------------------
+@app.route("/professor_logout")
+def professor_logout():
+    global current_professor_id
+
+    if current_professor_id is None:
+        return redirect("/")
+
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE dbo.Attendance_Log
+            SET LogoutTime = ?
+            WHERE Attendance_ID = ? AND LogoutTime IS NULL
+        """, datetime.now(), current_professor_id)
+
+        conn.commit()
+        conn.close()
+
+        current_professor_id = None  # clear stored ID
+
+        return redirect("/")
+
+    except Exception as e:
+        return f"Error logging out: {str(e)}"
+
+# ---------------------------------------------------------
+# Worker & Student Pages
+# ---------------------------------------------------------
 @app.route("/worker_home")
 def worker_home():
     return "<h1>Student Worker Dashboard</h1>"
