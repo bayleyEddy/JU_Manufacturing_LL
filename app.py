@@ -1,6 +1,3 @@
-# ---------------------------------------------------------
-#  Libraries Needed
-# ---------------------------------------------------------
 from flask import Flask, request, render_template, redirect
 # Used to connect to Azure SQL database
 import pyodbc      
