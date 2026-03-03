@@ -209,40 +209,61 @@ def professor_home():
 # ---------------------------------------------------------
 @app.route("/professor_search", methods=["POST"])
 def professor_search():
-    # Reads the student ID from the professor's search form
-    student_id = request.form.get("student_id")
+    search_value = request.form.get("student_id").strip()
 
-    # Ensures the ID is an integer
-    try:
-        student_id = int(student_id)
-    except:
-        return {"error": "Invalid student ID format"}
+    # Split input by spaces to detect full name searches
+    parts = search_value.split()
 
     try:
         conn = connect_db()
         cursor = conn.cursor()
 
+        # ---------------------------------------------------------
+        # CASE 1: Search by Student ID (all digits)
+        # ---------------------------------------------------------
+        if search_value.isdigit():
+            cursor.execute("""
+                SELECT Student_ID, First_Name, Last_Name, Liability_Waivers
+                FROM dbo.Student
+                WHERE Student_ID = ?
+            """, int(search_value))
 
-        # Looks up student based on ID
-        cursor.execute("""
-            SELECT First_Name, Last_Name, Liability_Waivers
-            FROM dbo.Student
-            WHERE Student_ID = ?
-        """, student_id)
+        # ---------------------------------------------------------
+        # CASE 2: Full name search (two words)
+        # ---------------------------------------------------------
+        elif len(parts) == 2:
+            first, last = parts[0], parts[1]
+
+            cursor.execute("""
+                SELECT Student_ID, First_Name, Last_Name, Liability_Waivers
+                FROM dbo.Student
+                WHERE LOWER(First_Name) = LOWER(?)
+                  AND LOWER(Last_Name) = LOWER(?)
+            """, first, last)
+
+        # ---------------------------------------------------------
+        # CASE 3: Single name search (first OR last)
+        # ---------------------------------------------------------
+        else:
+            cursor.execute("""
+                SELECT Student_ID, First_Name, Last_Name, Liability_Waivers
+                FROM dbo.Student
+                WHERE LOWER(First_Name) = LOWER(?)
+                   OR LOWER(Last_Name) = LOWER(?)
+            """, search_value, search_value)
 
         student = cursor.fetchone()
 
-        # If the student ID isn't found
         if not student:
             conn.close()
-            return {"error": "Student not found"}
+            return {"error": "No matching student found"}
 
-        # Displays waiver completed as "yes" or "no" instead of 1 and 0
-        first_name, last_name, waiver = student
+        student_id, first_name, last_name, waiver = student
         waiver_text = "Yes" if waiver == 1 else "No"
 
-
-        # Fetches the attendance records for the student
+        # ---------------------------------------------------------
+        # Fetch attendance history
+        # ---------------------------------------------------------
         cursor.execute("""
             SELECT LoginTime, LogoutTime
             FROM dbo.Attendance_Log
@@ -253,7 +274,6 @@ def professor_search():
         logs = cursor.fetchall()
         conn.close()
 
-        # Dictionary for login and logout times
         log_list = []
         for log in logs:
             log_list.append({
@@ -271,38 +291,6 @@ def professor_search():
 
     except Exception as e:
         return {"error": f"Database Error: {str(e)}"}
-
-# ---------------------------------------------------------
-# Logs out professor + redirects
-# ---------------------------------------------------------
-@app.route("/professor_logout")
-def professor_logout():
-    global current_professor_id
-
-    if current_professor_id is None:
-        return redirect("/")
-
-    try:
-        conn = connect_db()
-        cursor = conn.cursor()
-
-        # Sets the logout time to now
-        cursor.execute("""
-            UPDATE dbo.Attendance_Log
-            SET LogoutTime = ?
-            WHERE Attendance_ID = ? AND LogoutTime IS NULL
-        """, datetime.now(), current_professor_id)
-
-        conn.commit()
-        conn.close()
-
-        current_professor_id = None  # clear stored ID
-
-        # Redirects to the home page
-        return redirect("/")
-
-    except Exception as e:
-        return f"Error logging out: {str(e)}"
 
 # ---------------------------------------------------------
 # Worker & Student Pages
