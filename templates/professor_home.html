@@ -2,168 +2,44 @@
 <html>
 <head>
     <title>Professor Dashboard</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f5f6fa;
-            margin: 0;
-            padding: 30px;
-        }
-
-        h1 {
-            margin: 0;
-        }
-
-        .top-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-        }
-
-        .signout-btn {
-            background: white;
-            border: 1px solid #ddd;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-        }
-
-        .dashboard {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-
-        .card {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        }
-
-        .card h3 {
-            margin-top: 0;
-        }
-
-        .status-green {
-            color: #16a34a;
-            font-weight: bold;
-        }
-
-        .student-box {
-            padding: 12px;
-            border: 1px solid #eee;
-            border-radius: 8px;
-            margin-top: 10px;
-        }
-
-        .search-section {
-            margin-top: 20px;
-        }
-
-        input[type="text"] {
-            padding: 8px;
-            width: 70%;
-            border-radius: 6px;
-            border: 1px solid #ccc;
-        }
-
-        button {
-            padding: 8px 14px;
-            border-radius: 6px;
-            border: none;
-            cursor: pointer;
-        }
-
-        .search-btn {
-            background-color: #111827;
-            color: white;
-        }
-
+        body { font-family: Arial; padding: 20px; }
+        #results { margin-top: 20px; padding: 10px; border: 1px solid #ccc; }
         .logout-btn {
-            background-color: #ef4444;
+            background-color: red; 
             color: white;
-            margin-top: 15px;
-        }
-
-        .attendance-list {
-            margin-top: 10px;
-        }
-
-        .attendance-list li {
-            margin-bottom: 5px;
-        }
-
-        @media(max-width: 900px) {
-            .dashboard {
-                grid-template-columns: 1fr;
-            }
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
         }
     </style>
 </head>
-
 <body>
 
-<div class="top-bar">
-    <div>
-        <h1>Professor Dashboard</h1>
-        <p>Welcome, Dr. Smith</p>
-    </div>
+<h1>Professor Dashboard</h1>
 
-    <a href="/professor_logout">
-        <button class="signout-btn">Sign Out</button>
-    </a>
-</div>
+<!-- REAL Logout Button -->
+<a href="/professor_logout">
+    <button class="logout-btn">Logout</button>
+</a>
 
-<div class="dashboard">
+<hr>
 
-    <!-- Left Column -->
-    <div>
+<h3>Search Student Profile</h3>
 
-        <!-- Currently Signed In -->
-        <div class="card">
-            <h3>Currently Signed In (1)</h3>
+<form id="searchForm">
+    <label>Student ID:</label>
+    <input type="text" id="student_id" name="student_id" required>
+    <button type="submit">Search</button>
+</form>
 
-            <div class="student-box">
-                <strong>Dr. Smith</strong><br>
-                ID: 001<br>
-                Signed in at 06:39 PM
-            </div>
-        </div>
-
-        <!-- Search Student -->
-        <div class="card search-section">
-            <h3>Search Student History</h3>
-
-            <form id="searchForm">
-                <input type="text" id="student_id" name="student_id" placeholder="Enter Student ID" required>
-                <button type="submit" class="search-btn">Search</button>
-            </form>
-
-            <div id="searchResults"></div>
-        </div>
-
-    </div>
-
-    <!-- Right Column -->
-    <div>
-
-        <div class="card" id="profileCard">
-            <h3>Student Profile</h3>
-            <p>Search for a student to view details.</p>
-        </div>
-
-    </div>
-
-</div>
+<div id="results"></div>
 
 <script>
     const form = document.getElementById("searchForm");
-    const profileCard = document.getElementById("profileCard");
-    const searchResults = document.getElementById("searchResults");
+    const results = document.getElementById("results");
 
     form.addEventListener("submit", async function(e) {
         e.preventDefault();
@@ -178,41 +54,29 @@
         const data = await response.json();
 
         if (data.error) {
-            searchResults.innerHTML = `<p style='color:red;'>${data.error}</p>`;
+            results.innerHTML = `<p style='color:red;'>${data.error}</p>`;
             return;
         }
 
-        // Update profile card (right side)
-        profileCard.innerHTML = `
-            <h3>${data.first_name} ${data.last_name}</h3>
-            <p><strong>Student ID:</strong> ${data.student_id}</p>
-            <p><strong>Waiver:</strong> 
-                <span class="status-green">${data.waiver}</span>
-            </p>
+        let html = `
+            <h3>Student Profile</h3>
+            <p><strong>Name:</strong> ${data.first_name} ${data.last_name}</p>
+            <p><strong>ID:</strong> ${data.student_id}</p>
+            <p><strong>Waiver Signed:</strong> ${data.waiver}</p>
             <h4>Attendance History</h4>
         `;
 
         if (data.logs.length === 0) {
-            profileCard.innerHTML += "<p>No attendance records found.</p>";
+            html += "<p>No attendance records found.</p>";
         } else {
-            profileCard.innerHTML += "<ul class='attendance-list'>";
+            html += "<ul>";
             data.logs.forEach(log => {
-                profileCard.innerHTML += `
-                    <li>
-                        Login: ${log.login} — Logout: ${log.logout}
-                    </li>
-                `;
+                html += `<li>Login: ${log.login} — Logout: ${log.logout}</li>`;
             });
-            profileCard.innerHTML += "</ul>";
+            html += "</ul>";
         }
 
-        // Optional: Show basic search result preview
-        searchResults.innerHTML = `
-            <div class="student-box">
-                ${data.first_name} ${data.last_name} 
-                <span class="status-green">✔ Waiver Signed</span>
-            </div>
-        `;
+        results.innerHTML = html;
     });
 </script>
 
