@@ -293,6 +293,41 @@ def professor_search():
         return {"error": f"Database Error: {str(e)}"}
 
 # ---------------------------------------------------------
+# Professor Logout Route
+# ---------------------------------------------------------
+@app.route("/professor_logout")
+def professor_logout():
+    global current_professor_id
+
+    # If no professor is stored, just go back to home
+    if current_professor_id is None:
+        return redirect("/")
+
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        # Close any active session for this professor
+        cursor.execute("""
+            UPDATE dbo.Attendance_Log
+            SET LogoutTime = ?
+            WHERE Attendance_ID = ? AND LogoutTime IS NULL
+        """, datetime.now(), current_professor_id)
+
+        conn.commit()
+        conn.close()
+
+        # Clear the stored professor ID
+        current_professor_id = None
+
+        # Send them back to the main check-in page
+        return redirect("/")
+
+    except Exception as e:
+        return f"Error logging out: {str(e)}"
+
+
+# ---------------------------------------------------------
 # Worker & Student Pages
 # ---------------------------------------------------------
 @app.route("/worker_home")
