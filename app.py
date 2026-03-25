@@ -292,6 +292,50 @@ def professor_search():
     except Exception as e:
         return {"error": f"Database Error: {str(e)}"}
 
+
+
+
+# ---------------------------------------------------------
+# Professor Metrics Route
+# ---------------------------------------------------------
+@app.route("/professor_metrics")
+def professor_metrics():
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        # Get top 5 students by total time spent in the last 7 days
+        cursor.execute("""
+            SELECT TOP 5 
+                s.Student_ID,
+                s.First_Name,
+                s.Last_Name,
+                SUM(DATEDIFF(MINUTE, a.LoginTime, a.LogoutTime)) AS TotalMinutes
+            FROM dbo.Attendance_Log a
+            JOIN dbo.Student s ON a.Attendance_ID = s.Student_ID
+            WHERE a.LoginTime >= DATEADD(DAY, -7, GETDATE())
+              AND a.LogoutTime IS NOT NULL
+            GROUP BY s.Student_ID, s.First_Name, s.Last_Name
+            ORDER BY TotalMinutes DESC
+        """)
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        top_students = []
+        for r in rows:
+            top_students.append({
+                "student_id": r[0],
+                "first_name": r[1],
+                "last_name": r[2],
+                "minutes": r[3]
+            })
+
+        return {"top_students": top_students}
+
+    except Exception as e:
+        return {"error": f"Metrics Error: {str(e)}"}
+
 # ---------------------------------------------------------
 # Professor Logout Route
 # ---------------------------------------------------------
@@ -325,6 +369,83 @@ def professor_logout():
 
     except Exception as e:
         return f"Error logging out: {str(e)}"
+
+# ---------------------------------------------------------
+# Export Weekly Metrics (CSV)
+# ---------------------------------------------------------
+@app.route("/export_weekly_metrics")
+def export_weekly_metrics():
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        # Total time per student (last 7 days)
+        cursor.execute("""
+            SELECT 
+                s.Student_ID,
+                s.First_Name,
+                s.Last_Name,
+                SUM(DATEDIFF(MINUTE, a.LoginTime, a.LogoutTime)) AS TotalMinutes
+            FROM dbo.Attendance_Log a
+            JOIN dbo.Student s ON a.Attendance_ID = s.Student_ID
+            WHERE a.LoginTime >= DATEADD(DAY, -7, GETDATE())
+              AND a.LogoutTime IS NOT NULL
+            GROUP BY s.Student_ID, s.First_Name, s.Last_Name
+            ORDER BY TotalMinutes DESC
+        """)
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        # Build CSV content
+        csv_data = "Student ID,First Name,Last Name,Total Minutes This Week\n"
+        for r in rows:
+            csv_data += f"{r[0]},{r[1]},{r[2]},{r[3]}\n"
+
+        # Return as downloadable file
+        return (
+            csv_data,
+            200,
+            {
+                "Content-Type": "text/csv",
+                "Content-Disposition": "attachment; filename=weekly_metrics.csv"
+            }
+        )
+
+    except Exception as e:
+        return {"error": f"Export Error: {str(e)}"}
+
+# ---------------------------------------------------------
+# Students Missing Liability Waivers
+# ---------------------------------------------------------
+@app.route("/students_without_waivers")
+def students_without_waivers():
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT Student_ID, First_Name, Last_Name
+            FROM dbo.Student
+            WHERE Liability_Waivers = 0 OR Liability_Waivers IS NULL
+            ORDER BY Last_Name, First_Name
+        """)
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        students = []
+        for r in rows:
+            students.append({
+                "student_id": r[0],
+                "first_name": r[1],
+                "last_name": r[2]
+            })
+
+        return {"students": students}
+
+    except Exception as e:
+        return {"error": f"Waiver Error: {str(e)}"}
 
 
 # ---------------------------------------------------------

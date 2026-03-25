@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            background-color: #f5f6fa;
+            background-color: #eef1f6;
             margin: 0;
             padding: 30px;
         }
@@ -16,36 +16,46 @@
             margin: 0;
         }
 
+        /* Top Bar */
         .top-bar {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 30px;
+            margin-bottom: 35px;
         }
 
         .signout-btn {
-            background: white;
-            border: 1px solid #ddd;
-            padding: 8px 16px;
-            border-radius: 6px;
+            background: #ffffff;
+            border: 1px solid #d1d5db;
+            padding: 10px 18px;
+            border-radius: 8px;
             cursor: pointer;
+            transition: 0.2s;
         }
 
+        .signout-btn:hover {
+            background: #f3f4f6;
+        }
+
+        /* Dashboard Grid */
         .dashboard {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
+            grid-template-columns: 1.1fr 1fr;
+            gap: 25px;
         }
 
+        /* Card Styling */
         .card {
             background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            padding: 22px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+            margin-bottom: 20px;
         }
 
         .card h3 {
             margin-top: 0;
+            margin-bottom: 12px;
         }
 
         .status-green {
@@ -54,50 +64,47 @@
         }
 
         .student-box {
-            padding: 12px;
-            border: 1px solid #eee;
-            border-radius: 8px;
-            margin-top: 10px;
-        }
-
-        .search-section {
-            margin-top: 20px;
+            padding: 14px;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            margin-top: 12px;
+            background: #fafafa;
         }
 
         input[type="text"] {
-            padding: 8px;
-            width: 70%;
-            border-radius: 6px;
-            border: 1px solid #ccc;
+            padding: 10px;
+            width: 75%;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            margin-bottom: 10px;
         }
 
         button {
-            padding: 8px 14px;
-            border-radius: 6px;
+            padding: 10px 16px;
+            border-radius: 8px;
             border: none;
             cursor: pointer;
+            font-size: 14px;
         }
 
         .search-btn {
-            background-color: #111827;
+            background-color: #1f2937;
             color: white;
         }
 
-        .logout-btn {
-            background-color: #ef4444;
-            color: white;
-            margin-top: 15px;
+        .search-btn:hover {
+            background-color: #111827;
         }
 
         .attendance-list {
-            margin-top: 10px;
+            margin-top: 12px;
         }
 
         .attendance-list li {
-            margin-bottom: 5px;
+            margin-bottom: 6px;
         }
 
-        @media(max-width: 900px) {
+        @media(max-width: 1000px) {
             .dashboard {
                 grid-template-columns: 1fr;
             }
@@ -120,7 +127,7 @@
 
 <div class="dashboard">
 
-    <!-- Left Column -->
+    <!-- LEFT COLUMN -->
     <div>
 
         <!-- Currently Signed In -->
@@ -135,31 +142,51 @@
         </div>
 
         <!-- Search Student -->
-        <div class="card search-section">
+        <div class="card">
             <h3>Search Student History</h3>
 
             <form id="searchForm">
-                <input type="text" id="student_id" name="student_id" placeholder="Enter Student ID" required>
+                <input type="text" id="student_id" name="student_id" placeholder="Enter Student ID, Name, or Full Name" required>
                 <button type="submit" class="search-btn">Search</button>
             </form>
 
             <div id="searchResults"></div>
         </div>
 
+        <!-- Students Missing Liability Waiver -->
+        <div class="card" id="waiverCard">
+            <h3>Students Missing Liability Waiver</h3>
+            <p>Loading...</p>
+        </div>
+
     </div>
 
-    <!-- Right Column -->
+    <!-- RIGHT COLUMN -->
     <div>
 
+        <!-- Weekly Metrics -->
+        <div class="card" id="metricsCard">
+            <h3>Weekly Top 5 Students</h3>
+            <p>Loading metrics...</p>
+        </div>
+
+        <!-- Student Profile -->
         <div class="card" id="profileCard">
             <h3>Student Profile</h3>
             <p>Search for a student to view details.</p>
+        </div>
+
+        <!-- Export Button -->
+        <div class="card">
+            <h3>Export Weekly Metrics</h3>
+            <button onclick="exportMetrics()" class="search-btn">Download CSV</button>
         </div>
 
     </div>
 
 </div>
 
+<!-- SEARCH SCRIPT -->
 <script>
     const form = document.getElementById("searchForm");
     const profileCard = document.getElementById("profileCard");
@@ -182,7 +209,6 @@
             return;
         }
 
-        // Update profile card (right side)
         profileCard.innerHTML = `
             <h3>${data.first_name} ${data.last_name}</h3>
             <p><strong>Student ID:</strong> ${data.student_id}</p>
@@ -206,7 +232,6 @@
             profileCard.innerHTML += "</ul>";
         }
 
-        // Optional: Show basic search result preview
         searchResults.innerHTML = `
             <div class="student-box">
                 ${data.first_name} ${data.last_name} 
@@ -214,6 +239,93 @@
             </div>
         `;
     });
+</script>
+
+<!-- METRICS SCRIPT -->
+<script>
+async function loadMetrics() {
+    const response = await fetch("/professor_metrics");
+    const data = await response.json();
+
+    const metricsCard = document.getElementById("metricsCard");
+
+    if (data.error) {
+        metricsCard.innerHTML = `<p style='color:red;'>${data.error}</p>`;
+        return;
+    }
+
+    if (data.top_students.length === 0) {
+        metricsCard.innerHTML = "<p>No data available for this week.</p>";
+        return;
+    }
+
+    let html = "<ul class='attendance-list'>";
+
+    data.top_students.forEach(s => {
+        html += `
+            <li>
+                <strong>${s.first_name} ${s.last_name}</strong><br>
+                ${s.minutes} minutes this week
+            </li>
+        `;
+    });
+
+    html += "</ul>";
+
+    metricsCard.innerHTML = `
+        <h3>Weekly Top 5 Students</h3>
+        ${html}
+    `;
+}
+
+loadMetrics();
+</script>
+
+<!-- WAIVER LIST SCRIPT -->
+<script>
+async function loadWaiverList() {
+    const response = await fetch("/students_without_waivers");
+    const data = await response.json();
+
+    const waiverCard = document.getElementById("waiverCard");
+
+    if (data.error) {
+        waiverCard.innerHTML = `<p style='color:red;'>${data.error}</p>`;
+        return;
+    }
+
+    if (data.students.length === 0) {
+        waiverCard.innerHTML = "<p>All students have signed the waiver.</p>";
+        return;
+    }
+
+    let html = "<ul class='attendance-list'>";
+
+    data.students.forEach(s => {
+        html += `
+            <li>
+                <strong>${s.first_name} ${s.last_name}</strong><br>
+                ID: ${s.student_id}
+            </li>
+        `;
+    });
+
+    html += "</ul>";
+
+    waiverCard.innerHTML = `
+        <h3>Students Missing Liability Waiver</h3>
+        ${html}
+    `;
+}
+
+loadWaiverList();
+</script>
+
+<!-- EXPORT SCRIPT -->
+<script>
+function exportMetrics() {
+    window.location.href = "/export_weekly_metrics";
+}
 </script>
 
 </body>
