@@ -153,6 +153,12 @@
             <div id="searchResults"></div>
         </div>
 
+        <div class="card" id="todayWorkerCard">
+            <h3>Today's Student Worker</h3>
+            <p>Loading...</p>
+</div>
+
+
         <!-- Students Missing Liability Waiver -->
         <div class="card" id="waiverCard">
             <h3>Students Missing Liability Waiver</h3>
@@ -327,6 +333,39 @@ function exportMetrics() {
     window.location.href = "/export_weekly_metrics";
 }
 </script>
+
+
+
+
+<script>
+async function loadTodayWorker() {
+    const response = await fetch("/today_worker");
+    const data = await response.json();
+
+    const card = document.getElementById("todayWorkerCard");
+
+    if (data.error) {
+        card.innerHTML = `<p style='color:red;'>${data.error}</p>`;
+        return;
+    }
+
+    if (data.message) {
+        card.innerHTML = `<p>${data.message}</p>`;
+        return;
+    }
+
+    card.innerHTML = `
+        <h3>Today's Student Worker</h3>
+        <p><strong>${data.first_name} ${data.last_name}</strong></p>
+        <p><strong>Shift:</strong> ${data.start} – ${data.end}</p>
+        <p><strong>Time Worked:</strong> ${data.minutes_worked} minutes</p>
+        <p><strong>Time Remaining:</strong> ${data.minutes_remaining} minutes</p>
+    `;
+}
+
+loadTodayWorker();
+</script>
+
 
 </body>
 </html>

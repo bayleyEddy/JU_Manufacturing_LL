@@ -449,6 +449,70 @@ def students_without_waivers():
 
 
 # ---------------------------------------------------------
+# Today's Student Worker + Shift Info
+# ---------------------------------------------------------
+@app.route("/today_worker")
+def today_worker():
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        # Determine today's weekday name
+        weekday = datetime.now().strftime("%A")
+
+        # Get today's scheduled worker
+        cursor.execute("""
+            SELECT s.Worker_ID, sw.Worker_FirstName, sw.Worker_LastName,
+                   s.StartTime, s.EndTime
+            FROM dbo.Student_Worker_Schedule s
+            JOIN dbo.Student_Worker sw ON s.Worker_ID = sw.Worker_ID
+            WHERE s.DayOfWeek = ?
+        """, weekday)
+
+        row = cursor.fetchone()
+
+        if not row:
+            return {"message": "No worker scheduled today"}
+
+        worker_id, first, last, start, end = row
+
+        # Check if worker is currently clocked in
+        cursor.execute("""
+            SELECT LoginTime
+            FROM dbo.Attendance_Log
+            WHERE Attendance_ID = ? AND LogoutTime IS NULL
+        """, worker_id)
+
+        active = cursor.fetchone()
+        now = datetime.now()
+
+        if active:
+            login_time = active[0]
+            minutes_worked = int((now - login_time).total_seconds() / 60)
+        else:
+            minutes_worked = 0
+
+        # Calculate shift duration + remaining time
+        shift_start = datetime.combine(now.date(), start)
+        shift_end = datetime.combine(now.date(), end)
+
+        total_shift_minutes = int((shift_end - shift_start).total_seconds() / 60)
+        minutes_remaining = max(total_shift_minutes - minutes_worked, 0)
+
+        return {
+            "first_name": first,
+            "last_name": last,
+            "start": str(start),
+            "end": str(end),
+            "minutes_worked": minutes_worked,
+            "minutes_remaining": minutes_remaining
+        }
+
+    except Exception as e:
+        return {"error": f"Worker Error: {str(e)}"}
+
+
+# ---------------------------------------------------------
 # Worker & Student Pages
 # ---------------------------------------------------------
 @app.route("/worker_home")
