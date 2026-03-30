@@ -58,6 +58,25 @@
             margin-bottom: 12px;
         }
 
+        /* Scrollable card class */
+        .scrollable {
+            max-height: 250px;
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+
+        /* Optional: nicer scrollbar */
+        .scrollable::-webkit-scrollbar {
+            width: 6px;
+        }
+        .scrollable::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 4px;
+        }
+        .scrollable::-webkit-scrollbar-thumb:hover {
+            background-color: #94a3b8;
+        }
+
         .status-green {
             color: #16a34a;
             font-weight: bold;
@@ -120,9 +139,12 @@
         <p>Welcome, Dr. Smith</p>
     </div>
 
-    <a href="/professor_logout">
+    <a href="/professor_logout" onclick="isLoggedIn = false;">
         <button class="signout-btn">Sign Out</button>
     </a>
+
+
+
 </div>
 
 <div class="dashboard">
@@ -153,14 +175,14 @@
             <div id="searchResults"></div>
         </div>
 
+        <!-- Today's Worker -->
         <div class="card" id="todayWorkerCard">
             <h3>Today's Student Worker</h3>
             <p>Loading...</p>
-</div>
+        </div>
 
-
-        <!-- Students Missing Liability Waiver -->
-        <div class="card" id="waiverCard">
+        <!-- Scrollable waiver card -->
+        <div class="card scrollable" id="waiverCard">
             <h3>Students Missing Liability Waiver</h3>
             <p>Loading...</p>
         </div>
@@ -334,9 +356,7 @@ function exportMetrics() {
 }
 </script>
 
-
-
-
+<!-- TODAY WORKER SCRIPT -->
 <script>
 async function loadTodayWorker() {
     const response = await fetch("/today_worker");
@@ -364,6 +384,18 @@ async function loadTodayWorker() {
 }
 
 loadTodayWorker();
+</script>
+
+<script>
+let isLoggedIn = true;
+
+window.addEventListener("beforeunload", function (e) {
+    if (isLoggedIn) {
+        e.preventDefault();
+        e.returnValue = "Please click the Sign Out button to properly record your logout.";
+        return "Please click the Sign Out button to properly record your logout.";
+    }
+});
 </script>
 
 
