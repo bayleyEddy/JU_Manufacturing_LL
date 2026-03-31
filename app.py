@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, redirect
+from flask import Flask, request, render_template, redirect, jsonify, Response
 # Used to connect to Azure SQL database
 import pyodbc      
 from datetime import datetime
@@ -108,6 +108,18 @@ def checkin():
                 role = "StudentWorker"
                 first_name, last_name = worker
                 waiver = 1
+
+                # Force Attendance_ID to be Worker_ID
+                cursor.execute("""
+                    SELECT Worker_ID
+                    FROM dbo.Student_Worker
+                    WHERE Worker_ID = ?
+                """, student_id)
+
+                worker_row = cursor.fetchone()
+                if worker_row:
+                    student_id = worker_row[0]  # overwrite with Worker_ID
+
 
             else:
                 # -------------------------------------------------
@@ -370,50 +382,107 @@ def professor_logout():
     except Exception as e:
         return f"Error logging out: {str(e)}"
 
-# ---------------------------------------------------------
-# Export Weekly Metrics (CSV)
-# ---------------------------------------------------------
-@app.route("/export_weekly_metrics")
-def export_weekly_metrics():
-    try:
-        conn = connect_db()
-        cursor = conn.cursor()
 
-        # Total time per student (last 7 days)
-        cursor.execute("""
-            SELECT 
-                s.Student_ID,
-                s.First_Name,
-                s.Last_Name,
-                SUM(DATEDIFF(MINUTE, a.LoginTime, a.LogoutTime)) AS TotalMinutes
-            FROM dbo.Attendance_Log a
-            JOIN dbo.Student s ON a.Attendance_ID = s.Student_ID
-            WHERE a.LoginTime >= DATEADD(DAY, -7, GETDATE())
-              AND a.LogoutTime IS NOT NULL
-            GROUP BY s.Student_ID, s.First_Name, s.Last_Name
-            ORDER BY TotalMinutes DESC
-        """)
 
-        rows = cursor.fetchall()
-        conn.close()
+@app.route("/export_monthly_csv")
+def export_monthly_csv():
+    conn = connect_db()
+    cursor = conn.cursor()
 
-        # Build CSV content
-        csv_data = "Student ID,First Name,Last Name,Total Minutes This Week\n"
-        for r in rows:
-            csv_data += f"{r[0]},{r[1]},{r[2]},{r[3]}\n"
+    cursor.execute("""
+        SELECT 
+            s.Student_ID,
+            s.First_Name,
+            s.Last_Name,
+            SUM(DATEDIFF(MINUTE, a.LoginTime, ISNULL(a.LogoutTime, GETDATE()))) AS TotalMinutes,
+            COUNT(*) AS TotalVisits,
+            AVG(DATEDIFF(MINUTE, a.LoginTime, ISNULL(a.LogoutTime, GETDATE()))) AS AvgSessionLength
+        FROM Attendance_Log a
+        JOIN Student s ON a.Attendance_ID = s.Student_ID
+        WHERE a.LoginTime >= DATEADD(DAY, -30, GETDATE())
+        GROUP BY s.Student_ID, s.First_Name, s.Last_Name
+        ORDER BY TotalMinutes DESC;
+    """)
 
-        # Return as downloadable file
-        return (
-            csv_data,
-            200,
-            {
-                "Content-Type": "text/csv",
-                "Content-Disposition": "attachment; filename=weekly_metrics.csv"
-            }
-        )
+    rows = cursor.fetchall()
 
-    except Exception as e:
-        return {"error": f"Export Error: {str(e)}"}
+    output = "Student_ID,First_Name,Last_Name,TotalMinutes,TotalVisits,AvgSessionLength\n"
+    for r in rows:
+        output += f"{r[0]},{r[1]},{r[2]},{r[3]},{r[4]},{r[5]}\n"
+
+    return Response(
+        output,
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment;filename=monthly_report.csv"}
+    )
+
+
+
+
+
+@app.route("/monthly_dashboard_data")
+def monthly_dashboard_data():
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    # Student totals
+    cursor.execute("""
+        SELECT 
+            s.Student_ID,
+            s.First_Name,
+            s.Last_Name,
+            SUM(DATEDIFF(MINUTE, a.LoginTime, ISNULL(a.LogoutTime, GETDATE()))) AS TotalMinutes,
+            COUNT(*) AS TotalVisits,
+            AVG(DATEDIFF(MINUTE, a.LoginTime, ISNULL(a.LogoutTime, GETDATE()))) AS AvgSessionLength
+        FROM Attendance_Log a
+        JOIN Student s ON a.Attendance_ID = s.Student_ID
+        WHERE a.LoginTime >= DATEADD(DAY, -30, GETDATE())
+        GROUP BY s.Student_ID, s.First_Name, s.Last_Name
+        ORDER BY TotalMinutes DESC;
+    """)
+
+    student_rows = cursor.fetchall()
+
+    students = []
+    for r in student_rows:
+        students.append({
+            "id": r[0],
+            "first": r[1],
+            "last": r[2],
+            "minutes": r[3],
+            "visits": r[4],
+            "avg_session": r[5]
+        })
+
+    # Daily totals
+    cursor.execute("""
+        SELECT 
+            CAST(LoginTime AS DATE) AS Day,
+            SUM(DATEDIFF(MINUTE, LoginTime, ISNULL(LogoutTime, GETDATE()))) AS TotalMinutes
+        FROM Attendance_Log
+        WHERE LoginTime >= DATEADD(DAY, -30, GETDATE())
+        GROUP BY CAST(LoginTime AS DATE)
+        ORDER BY Day ASC;
+    """)
+
+    daily_rows = cursor.fetchall()
+
+    daily = []
+    for r in daily_rows:
+        daily.append({
+            "day": r[0].strftime("%Y-%m-%d"),
+            "minutes": r[1]
+        })
+
+    return jsonify({
+        "students": students,
+        "daily": daily
+    })
+
+
+
+
+
 
 # ---------------------------------------------------------
 # Students Missing Liability Waivers
@@ -453,63 +522,70 @@ def students_without_waivers():
 # ---------------------------------------------------------
 @app.route("/today_worker")
 def today_worker():
-    try:
-        conn = connect_db()
-        cursor = conn.cursor()
+    conn = connect_db()
+    cursor = conn.cursor()
 
-        # Determine today's weekday name
-        weekday = datetime.now().strftime("%A")
+    # Get today's worker
+    today = datetime.now().strftime("%A")
 
-        # Get today's scheduled worker
-        cursor.execute("""
-            SELECT s.Worker_ID, sw.Worker_FirstName, sw.Worker_LastName,
-                   s.StartTime, s.EndTime
-            FROM dbo.Student_Worker_Schedule s
-            JOIN dbo.Student_Worker sw ON s.Worker_ID = sw.Worker_ID
-            WHERE s.DayOfWeek = ?
-        """, weekday)
+    cursor.execute("""
+        SELECT s.Worker_ID, sw.Worker_FirstName, sw.Worker_LastName,
+               s.StartTime, s.EndTime
+        FROM Student_Worker_Schedule s
+        JOIN Student_Worker sw ON s.Worker_ID = sw.Worker_ID
+        WHERE s.DayOfWeek = ?
+    """, today)
 
-        row = cursor.fetchone()
+    row = cursor.fetchone()
 
-        if not row:
-            return {"message": "No worker scheduled today"}
+    if not row:
+        return jsonify({"message": "No student worker scheduled today."})
 
-        worker_id, first, last, start, end = row
+    worker_id, first, last, start, end = row
 
-        # Check if worker is currently clocked in
-        cursor.execute("""
-            SELECT LoginTime
-            FROM dbo.Attendance_Log
-            WHERE Attendance_ID = ? AND LogoutTime IS NULL
-        """, worker_id)
+    # ---------------------------------------------------------
+    # Get ALL attendance logs for this worker for TODAY
+    # ---------------------------------------------------------
+    cursor.execute("""
+        SELECT LoginTime, LogoutTime
+        FROM Attendance_Log
+        WHERE Attendance_ID = ?
+            AND LoginTime >= DATEADD(HOUR, -24, GETDATE())
+        ORDER BY LoginTime ASC
+    """, worker_id)
 
-        active = cursor.fetchone()
-        now = datetime.now()
+    logs = cursor.fetchall()
 
-        if active:
-            login_time = active[0]
-            minutes_worked = int((now - login_time).total_seconds() / 60)
+    total_minutes_worked = 0
+    now = datetime.now()
+
+    for login_time, logout_time in logs:
+        if logout_time is None:
+            total_minutes_worked += int((now - login_time).total_seconds() / 60)
         else:
-            minutes_worked = 0
+            total_minutes_worked += int((logout_time - login_time).total_seconds() / 60)
 
-        # Calculate shift duration + remaining time
-        shift_start = datetime.combine(now.date(), start)
-        shift_end = datetime.combine(now.date(), end)
+    # ---------------------------------------------------------
+    # Calculate shift minutes
+    # ---------------------------------------------------------
+    shift_start = datetime.combine(datetime.today(), start)
+    shift_end = datetime.combine(datetime.today(), end)
+    shift_minutes = int((shift_end - shift_start).total_seconds() / 60)
 
-        total_shift_minutes = int((shift_end - shift_start).total_seconds() / 60)
-        minutes_remaining = max(total_shift_minutes - minutes_worked, 0)
+    # Determine remaining time
+    if now >= shift_end:
+        minutes_remaining = "Shift Ended"
+    else:
+        minutes_remaining = max(shift_minutes - total_minutes_worked, 0)
 
-        return {
-            "first_name": first,
-            "last_name": last,
-            "start": str(start),
-            "end": str(end),
-            "minutes_worked": minutes_worked,
-            "minutes_remaining": minutes_remaining
-        }
-
-    except Exception as e:
-        return {"error": f"Worker Error: {str(e)}"}
+    return jsonify({
+        "first_name": first,
+        "last_name": last,
+        "start": start.strftime("%I:%M %p"),
+        "end": end.strftime("%I:%M %p"),
+        "minutes_worked": total_minutes_worked,
+        "minutes_remaining": minutes_remaining
+    })
 
 
 # ---------------------------------------------------------

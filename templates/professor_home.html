@@ -129,6 +129,9 @@
             }
         }
     </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 </head>
 
 <body>
@@ -204,11 +207,18 @@
             <p>Search for a student to view details.</p>
         </div>
 
-        <!-- Export Button -->
-        <div class="card">
-            <h3>Export Weekly Metrics</h3>
-            <button onclick="exportMetrics()" class="search-btn">Download CSV</button>
-        </div>
+
+    <div class="card">
+        <h3>Monthly Usage Dashboard</h3>
+
+        <canvas id="studentBarChart"></canvas>
+        <canvas id="dailyLineChart"></canvas>
+
+        <button onclick="downloadMonthlyCSV()" class="search-btn">
+            Download Monthly CSV
+        </button>
+    </div>
+
 
     </div>
 
@@ -378,8 +388,18 @@ async function loadTodayWorker() {
         <h3>Today's Student Worker</h3>
         <p><strong>${data.first_name} ${data.last_name}</strong></p>
         <p><strong>Shift:</strong> ${data.start} – ${data.end}</p>
-        <p><strong>Time Worked:</strong> ${data.minutes_worked} minutes</p>
-        <p><strong>Time Remaining:</strong> ${data.minutes_remaining} minutes</p>
+        <p><strong>Time Worked:</strong> 
+            ${isNaN(data.minutes_worked) 
+                ? data.minutes_worked 
+                : data.minutes_worked + " minutes"}
+        </p>
+
+        <p><strong>Time Remaining:</strong> 
+            ${data.minutes_remaining === "Shift Ended" 
+                ? "Shift Ended" 
+                : data.minutes_remaining + " minutes"}
+        </p>
+
     `;
 }
 
@@ -398,6 +418,54 @@ window.addEventListener("beforeunload", function (e) {
 });
 </script>
 
+<script>
+    async function loadMonthlyDashboard() {
+        const response = await fetch("/monthly_dashboard_data");
+        const data = await response.json();
+
+        // ----- Bar Chart (Students) -----
+        const names = data.students.map(s => `${s.first} ${s.last}`);
+        const minutes = data.students.map(s => s.minutes);
+
+        new Chart(document.getElementById("studentBarChart"), {
+            type: "bar",
+            data: {
+                labels: names,
+                datasets: [{
+                    label: "Total Minutes (Last 30 Days)",
+                    data: minutes,
+                    backgroundColor: "#4e73df"
+                }]
+            }
+        });
+
+        // ----- Line Chart (Daily Usage) -----
+        const days = data.daily.map(d => d.day);
+        const dailyMinutes = data.daily.map(d => d.minutes);
+
+        new Chart(document.getElementById("dailyLineChart"), {
+            type: "line",
+            data: {
+                labels: days,
+                datasets: [{
+                    label: "Daily Total Minutes",
+                    data: dailyMinutes,
+                    borderColor: "#1cc88a",
+                    fill: false
+                }]
+            }
+        });
+    }
+
+    loadMonthlyDashboard();
+
+    function downloadMonthlyCSV() {
+    isLoggedIn = false;
+    window.location.href = "/export_monthly_csv";
+}
+
+
+</script>
 
 </body>
 </html>
