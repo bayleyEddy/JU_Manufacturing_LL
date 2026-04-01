@@ -548,6 +548,54 @@ def today_worker():
 
     worker_id, first, last, start, end = row
 
+    # Build shift window BEFORE calculating logs
+    shift_start = datetime.combine(datetime.today(), start)
+    shift_end = datetime.combine(datetime.today(), end)
+
+    # Get today's logs
+    cursor.execute("""
+        SELECT LoginTime, LogoutTime
+        FROM Attendance_Log
+        WHERE Attendance_ID = ?
+          AND CAST(LoginTime AS DATE) = CAST(GETDATE() AS DATE)
+        ORDER BY LoginTime ASC
+    """, worker_id)
+
+    logs = cursor.fetchall()
+
+    total_minutes_worked = 0
+    now = datetime.now()
+
+    for login_time, logout_time in logs:
+        # Determine actual end time
+        actual_end = logout_time if logout_time else now
+
+        # Clamp to shift window
+        actual_start = max(login_time, shift_start)
+        actual_end = min(actual_end, shift_end)
+
+        # Only count positive time
+        if actual_end > actual_start:
+            total_minutes_worked += int((actual_end - actual_start).total_seconds() / 60)
+
+    # Shift duration
+    shift_minutes = int((shift_end - shift_start).total_seconds() / 60)
+
+    # Remaining time
+    if now >= shift_end:
+        minutes_remaining = "Shift Ended"
+    else:
+        minutes_remaining = max(shift_minutes - total_minutes_worked, 0)
+
+    return jsonify({
+        "first_name": first,
+        "last_name": last,
+        "start": start.strftime("%I:%M %p"),
+        "end": end.strftime("%I:%M %p"),
+        "minutes_worked": total_minutes_worked,
+        "minutes_remaining": minutes_remaining
+    })
+
     # ---------------------------------------------------------
     # Get ALL attendance logs for this worker for TODAY
     # ---------------------------------------------------------
@@ -565,10 +613,17 @@ def today_worker():
     now = datetime.now()
 
     for login_time, logout_time in logs:
-        if logout_time is None:
-            total_minutes_worked += int((now - login_time).total_seconds() / 60)
-        else:
-            total_minutes_worked += int((logout_time - login_time).total_seconds() / 60)
+        # Determine the actual end time (logout or now)
+        actual_end = logout_time if logout_time else now
+
+        # Clamp the interval to the shift window
+        actual_start = max(login_time, shift_start)
+        actual_end = min(actual_end, shift_end)
+
+        # Only count positive time
+        if actual_end > actual_start:
+            total_minutes_worked += int((actual_end - actual_start).total_seconds() / 60)
+
 
     # ---------------------------------------------------------
     # Calculate shift minutes
@@ -880,6 +935,51 @@ def override_waiver():
     # Redirect back to worker_search WITH student_id
     return redirect(url_for("worker_search", student_id=student_id), code=307)
 
+
+
+@app.route("/api/signed_in_users")
+def api_signed_in_users():
+    users = get_signed_in_users()
+
+    # Convert datetimes to strings
+    for u in users:
+        if isinstance(u["login"], datetime):
+            u["login"] = u["login"].strftime("%I:%M %p")
+
+    return jsonify(users)
+
+
+
+@app.route("/logout_user", methods=["POST"])
+def logout_user():
+    student_id = request.form.get("student_id")
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    # Find active session
+    cursor.execute("""
+        SELECT TOP 1 LoginTime
+        FROM Attendance_Log
+        WHERE Attendance_ID = ?
+          AND LogoutTime IS NULL
+        ORDER BY LoginTime DESC
+    """, student_id)
+
+    active = cursor.fetchone()
+
+    if active:
+        cursor.execute("""
+            UPDATE Attendance_Log
+            SET LogoutTime = GETDATE()
+            WHERE Attendance_ID = ?
+              AND LogoutTime IS NULL
+        """, student_id)
+        conn.commit()
+
+    conn.close()
+
+    return redirect("/professor_home")
 
 
 # ---------------------------------------------------------

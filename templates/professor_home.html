@@ -139,7 +139,7 @@
 <div class="top-bar">
     <div>
         <h1>Professor Dashboard</h1>
-        <p>Welcome, Dr. Smith</p>
+        <p>Welcome</p>
     </div>
 
     <a href="/professor_logout" onclick="isLoggedIn = false;">
@@ -157,13 +157,12 @@
 
         <!-- Currently Signed In -->
         <div class="card">
-            <h3>Currently Signed In (1)</h3>
+            <h3>Currently Signed In (<span id="signedInCount">0</span>)</h3>
 
-            <div class="student-box">
-                <strong>Dr. Smith</strong><br>
-                ID: 001<br>
-                Signed in at 06:39 PM
+            <div id="signedInList">
+                <p>Loading...</p>
             </div>
+
         </div>
 
         <!-- Search Student -->
@@ -463,9 +462,49 @@ window.addEventListener("beforeunload", function (e) {
     isLoggedIn = false;
     window.location.href = "/export_monthly_csv";
 }
-
-
 </script>
+
+
+<script>
+function loadSignedInUsers() {
+    fetch("/api/signed_in_users")
+        .then(response => response.json())
+        .then(users => {
+            const container = document.getElementById("signedInList");
+            container.innerHTML = "";
+
+            if (users.length === 0) {
+                container.innerHTML = "<p>No one is currently signed in.</p>";
+                return;
+            }
+
+            users.forEach(u => {
+                const div = document.createElement("div");
+                div.className = "student-box";
+                div.innerHTML = `
+                    <strong>${u.first} ${u.last}</strong><br>
+                    ID: ${u.id}<br>
+                    Login: ${u.login}<br>
+
+                    <form method="POST" action="/logout_user" style="margin-top: 5px;">
+                        <input type="hidden" name="student_id" value="${u.id}">
+                        <button class="btn btn-danger btn-sm">Logout</button>
+                    </form>
+                `;
+                document.getElementById("signedInCount").textContent = users.length;
+                container.appendChild(div);
+            });
+        });
+}
+
+// Load immediately and refresh every 5 seconds
+loadSignedInUsers();
+setInterval(loadSignedInUsers, 5000);
+</script>
+
+
+
+
 
 </body>
 </html>
