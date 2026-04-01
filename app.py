@@ -1,9 +1,10 @@
-from flask import Flask, request, render_template, redirect, jsonify, Response
+from flask import Flask, request, render_template, redirect, jsonify, Response, session, url_for
 # Used to connect to Azure SQL database
 import pyodbc      
 from datetime import datetime
 
 app = Flask(__name__)
+app.secret_key = "a8f9b1c2d3e4f5g6h7i8j9k0"
 
 # ---------------------------------------------------------
 # Azure SQL Connection
@@ -33,6 +34,7 @@ def connect_db():
 # Used to store the professor ID that is currently logged in,
 # this is used to aide with logging out with professor_logout route
 current_professor_id = None
+#worker_id = None
 
 # ---------------------------------------------------------
 # Home Page Route
@@ -120,6 +122,9 @@ def checkin():
                 if worker_row:
                     student_id = worker_row[0]  # overwrite with Worker_ID
 
+                # Store worker ID in session for logout
+                session["worker_id"] = student_id
+
 
             else:
                 # -------------------------------------------------
@@ -163,7 +168,7 @@ def checkin():
         # -------------------------------------------------
         role_redirects = {
             "Professor": "/professor_home",
-            "StudentWorker": "/worker_home",
+            "StudentWorker": "/student_worker",
             "Student": "/student_home"
         }
 
@@ -591,13 +596,291 @@ def today_worker():
 # ---------------------------------------------------------
 # Worker & Student Pages
 # ---------------------------------------------------------
-@app.route("/worker_home")
-def worker_home():
-    return "<h1>Student Worker Dashboard</h1>"
 
 @app.route("/student_home")
 def student_home():
     return "<h1>Student Home</h1>"
+
+# ---------------------------------------------------------
+# GET CURRENTLY SIGNED-IN USERS
+# ---------------------------------------------------------
+def get_signed_in_users():
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT Att_FirstName, Att_LastName, Attendance_ID, LoginTime
+        FROM dbo.Attendance_Log
+        WHERE LogoutTime IS NULL
+        ORDER BY LoginTime DESC
+    """)
+
+    users = cursor.fetchall()
+    conn.close()
+
+    result = []
+    for u in users:
+        result.append({
+            "first": u[0],
+            "last": u[1],
+            "id": u[2],
+            "login": u[3].strftime("%I:%M %p")
+        })
+
+    return result
+
+
+
+@app.route("/student_worker")
+def worker_home():
+    users = get_signed_in_users()
+    return render_template("student_worker.html", users=users)
+
+
+
+# ---------------------------------------------------------
+# SEARCH (Updated)
+# ---------------------------------------------------------
+@app.route("/worker_search", methods=["GET", "POST"])
+def worker_search():
+    users = get_signed_in_users()  # <-- MUST be here for both GET and POST
+
+    if request.method == "GET":
+        # GET should behave like POST when redirected from override
+        search_input = request.args.get("student_id", "")
+        if not search_input:
+            return redirect("/student_worker")
+    else:
+        search_input = request.form.get("student_id", "").strip()
+
+    if not search_input:
+        return render_template("student_worker.html", users=users, error="Please enter a name or ID")
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    # --- Search logic (ID or name) ---
+    if search_input.isdigit():
+        cursor.execute("""
+            SELECT Student_ID, First_Name, Last_Name, Liability_Waivers
+            FROM dbo.Student
+            WHERE Student_ID = ?
+        """, search_input)
+    else:
+        parts = search_input.split()
+        if len(parts) == 1:
+            cursor.execute("""
+                SELECT Student_ID, First_Name, Last_Name, Liability_Waivers
+                FROM dbo.Student
+                WHERE First_Name LIKE ? OR Last_Name LIKE ?
+            """, parts[0], parts[0])
+        else:
+            cursor.execute("""
+                SELECT Student_ID, First_Name, Last_Name, Liability_Waivers
+                FROM dbo.Student
+                WHERE First_Name LIKE ? AND Last_Name LIKE ?
+            """, parts[0], parts[1])
+
+    student = cursor.fetchone()
+
+    if not student:
+        conn.close()
+        return render_template("student_worker.html", users=users, error="Student not found")
+
+    student_id, first_name, last_name, waiver = student
+
+    # --- Check temporary override ---
+    cursor.execute("""
+        SELECT Override_Date
+        FROM dbo.Temporary_Waiver_Override
+        WHERE Student_ID = ?
+    """, student_id)
+
+    override = cursor.fetchone()
+    today = datetime.now().date()
+
+    override_valid = override and override[0] == today
+
+    search_result = {
+        "id": student_id,
+        "first": first_name,
+        "last": last_name,
+        "waiver": waiver,
+        "override_valid": override_valid
+    }
+
+    conn.close()
+    return render_template("student_worker.html", users=users, search_result=search_result)
+
+# ---------------------------------------------------------
+# SIGN IN STUDENT FROM DASHBOARD
+# ---------------------------------------------------------
+@app.route("/sign_in_student", methods=["POST"])
+def sign_in_student():
+    student_id = int(request.form.get("student_id"))
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    # Get student info
+    cursor.execute("""
+        SELECT First_Name, Last_Name, Liability_Waivers
+        FROM dbo.Student
+        WHERE Student_ID = ?
+    """, student_id)
+
+    student = cursor.fetchone()
+    if not student:
+        conn.close()
+        return redirect("/student_worker")
+
+    first_name, last_name, waiver = student
+
+    # Check override
+    cursor.execute("""
+        SELECT Override_Date
+        FROM Temporary_Waiver_Override
+        WHERE Student_ID = ?
+    """, student_id)
+
+    override = cursor.fetchone()
+    today = datetime.now().date()
+    override_valid = override and override[0] == today
+
+    # Enforce waiver rules
+    if waiver != 1 and not override_valid:
+        conn.close()
+        return redirect("/student_worker")
+
+    # Check if already signed in
+    cursor.execute("""
+        SELECT LoginTime
+        FROM dbo.Attendance_Log
+        WHERE Attendance_ID = ? AND LogoutTime IS NULL
+    """, student_id)
+
+    active = cursor.fetchone()
+    if active:
+        conn.close()
+        return redirect("/student_worker")
+
+    # Sign in
+    now = datetime.now()
+    cursor.execute("""
+        INSERT INTO dbo.Attendance_Log
+        (Att_FirstName, Att_LastName, Attendance_ID, LoginTime, LogoutTime)
+        VALUES (?, ?, ?, ?, NULL)
+    """, first_name, last_name, student_id, now)
+
+    conn.commit()
+    conn.close()
+
+    return redirect("/student_worker")
+
+
+# ---------------------------------------------------------
+# FORCE LOGOUT (Updated)
+# ---------------------------------------------------------
+@app.route("/force_logout", methods=["POST"])
+def force_logout():
+    """
+    Force logout a student by setting their LogoutTime to now.
+    """
+    student_id = request.form.get("student_id")
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE dbo.Attendance_Log
+        SET LogoutTime = ?
+        WHERE Attendance_ID = ? AND LogoutTime IS NULL
+    """, datetime.now(), student_id)
+    conn.commit()
+    conn.close()
+
+    return redirect("/student_worker")
+
+
+# ---------------------------------------------------------
+# LOGOUT ALL USERS
+# ---------------------------------------------------------
+@app.route("/force_logout_all", methods=["POST"])
+def force_logout_all():
+    # 1. Log out everyone
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE dbo.Attendance_Log
+        SET LogoutTime = ?
+        WHERE LogoutTime IS NULL
+    """, datetime.now())
+
+    conn.commit()
+    conn.close()
+
+    # 2. Clear worker session if they are logged in
+    session.pop("worker_id", None)
+
+    # 3. Redirect to home page
+    return redirect("/")
+
+
+# ---------------------------------------------------------
+# WORKER LOGOUT
+# ---------------------------------------------------------
+@app.route("/worker_logout")
+def worker_logout():
+    worker_id = session.get("worker_id")
+
+    if not worker_id:
+        return redirect("/")
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE dbo.Attendance_Log
+        SET LogoutTime = ?
+        WHERE Attendance_ID = ? AND LogoutTime IS NULL
+    """, datetime.now(), worker_id)
+
+    conn.commit()
+    conn.close()
+
+    # Clear worker session
+    session.pop("worker_id", None)
+
+    return redirect("/")
+
+
+
+# ---------------------------------------------------------
+# Overrides student waiver sign in
+# ---------------------------------------------------------
+@app.route("/override_waiver", methods=["POST"])
+def override_waiver():
+    student_id = request.form.get("student_id")
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        MERGE dbo.Temporary_Waiver_Override AS t
+        USING (SELECT ? AS Student_ID) AS s
+        ON t.Student_ID = s.Student_ID
+        WHEN MATCHED THEN UPDATE SET Override_Date = CAST(GETDATE() AS DATE)
+        WHEN NOT MATCHED THEN INSERT (Student_ID, Override_Date)
+        VALUES (s.Student_ID, CAST(GETDATE() AS DATE));
+    """, student_id)
+
+    conn.commit()
+    conn.close()
+
+    # Redirect back to worker_search WITH student_id
+    return redirect(url_for("worker_search", student_id=student_id), code=307)
+
+
 
 # ---------------------------------------------------------
 # Run App
