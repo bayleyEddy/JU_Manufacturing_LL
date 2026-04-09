@@ -1,6 +1,10 @@
 from flask import Flask, request, render_template, redirect, jsonify, Response, session, url_for
 # Used to connect to Azure SQL database
 import pyodbc      
+import smtplib
+import random
+import time
+from email.mime.text import MIMEText
 from datetime import datetime
 
 app = Flask(__name__)
@@ -27,6 +31,29 @@ def connect_db():
         "TrustServerCertificate=no;"
         "Connection Timeout=30;"
     )
+
+
+PROFESSOR_EMAIL = "bayley.test2@gmail.com"  # change to real email
+SMTP_SERVER = "smtp.gmail.com"             # or your mail server
+SMTP_PORT = 587
+SMTP_USER = "bayley.test2@gmail.com"       # sending account
+SMTP_PASS = "ohrh dzwx bfoh mssj"            # app password / SMTP password
+
+
+def send_2fa_email(to_email, code):
+    subject = "Your Professor Dashboard Verification Code"
+    body = f"Your verification code is: {code}"
+
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = SMTP_USER
+    msg["To"] = to_email
+
+    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASS)
+        server.send_message(msg)
+
 
 # ---------------------------------------------------------
 # TEMPORARY STORAGE FOR PROFESSOR ID
@@ -94,21 +121,35 @@ def checkin():
             # Store professor ID for logout button
             current_professor_id = student_id
 
+            # -------------------------------------------------
+            # 2FA: generate and email code
+            # -------------------------------------------------
+            code = random.randint(100000, 999999)
+            session["prof_2fa_code"] = str(code)
+            session["prof_2fa_expiry"] = time.time() + 300  # 5 minutes
+            session["professor_id"] = student_id
+            session["professor_name"] = f"{first_name} {last_name}"
+            session["professor_authenticated"] = False
+
+            send_2fa_email(PROFESSOR_EMAIL, code)
+            
+
         else:
             # -------------------------------------------------
             # 2. CHECK STUDENT WORKER TABLE
             # -------------------------------------------------
             cursor.execute("""
-                SELECT Worker_FirstName, Worker_LastName
+                SELECT Worker_FirstName, Worker_LastName, Worker_Email
                 FROM dbo.Student_Worker
                 WHERE Worker_ID = ?
             """, student_id)
+
 
             worker = cursor.fetchone()
 
             if worker:
                 role = "StudentWorker"
-                first_name, last_name = worker
+                first_name, last_name, worker_email = worker
                 waiver = 1
 
                 # Force Attendance_ID to be Worker_ID
@@ -120,10 +161,21 @@ def checkin():
 
                 worker_row = cursor.fetchone()
                 if worker_row:
-                    student_id = worker_row[0]  # overwrite with Worker_ID
+                    student_id = worker_row[0]
 
-                # Store worker ID in session for logout
+                # Store worker ID in session
                 session["worker_id"] = student_id
+                session["worker_name"] = f"{first_name} {last_name}"
+
+                # -------------------------------
+                # 2FA for Student Worker
+                # -------------------------------
+                code = random.randint(100000, 999999)
+                session["worker_2fa_code"] = str(code)
+                session["worker_2fa_expiry"] = time.time() + 300  # 5 minutes
+                session["worker_authenticated"] = False
+
+                send_2fa_email(worker_email, code)
 
 
             else:
@@ -167,10 +219,11 @@ def checkin():
         # Role redirect mapping
         # -------------------------------------------------
         role_redirects = {
-            "Professor": "/professor_home",
-            "StudentWorker": "/student_worker",
+            "Professor": "/professor_2fa",
+            "StudentWorker": "/worker_2fa",
             "Student": "/student_home"
         }
+
 
         # Default for if a role is not found (shouldn't happen but just in case)
         redirect_url = role_redirects.get(role, "/student_home")
@@ -217,8 +270,41 @@ def checkin():
 # ---------------------------------------------------------
 # Professor Dashboard
 # ---------------------------------------------------------
+@app.route("/professor_2fa", methods=["GET", "POST"])
+def professor_2fa():
+    # If no 2FA in progress, send back to swipe
+    if "prof_2fa_code" not in session:
+        return redirect("/")
+
+    if request.method == "POST":
+        entered = request.form.get("code", "").strip()
+        real_code = session.get("prof_2fa_code")
+        expiry = session.get("prof_2fa_expiry", 0)
+
+        if not real_code or time.time() > expiry:
+            # Expired
+            session.pop("prof_2fa_code", None)
+            session.pop("prof_2fa_expiry", None)
+            return render_template("professor_2fa.html",
+                                   error="Code expired. Please swipe again to log in.")
+
+        if entered == real_code:
+            session["professor_authenticated"] = True
+            session.pop("prof_2fa_code", None)
+            session.pop("prof_2fa_expiry", None)
+            return redirect("/professor_home")
+        else:
+            return render_template("professor_2fa.html",
+                                   error="Invalid code. Please try again.")
+
+    return render_template("professor_2fa.html")
+# ---------------------------------------------------------
+
 @app.route("/professor_home")
 def professor_home():
+    if not session.get("professor_authenticated"):
+        return redirect("/professor_2fa")
+
     return render_template("professor_home.html")
 
 # ---------------------------------------------------------
@@ -356,37 +442,45 @@ def professor_metrics():
 # ---------------------------------------------------------
 # Professor Logout Route
 # ---------------------------------------------------------
+# ---------------------------------------------------------
+# Professor Logout Route (Updated for 2FA)
+# ---------------------------------------------------------
 @app.route("/professor_logout")
 def professor_logout():
     global current_professor_id
 
-    # If no professor is stored, just go back to home
-    if current_professor_id is None:
-        return redirect("/")
-
     try:
-        conn = connect_db()
-        cursor = conn.cursor()
+        # If professor was logged in (attendance-wise), close their session
+        if current_professor_id is not None:
+            conn = connect_db()
+            cursor = conn.cursor()
 
-        # Close any active session for this professor
-        cursor.execute("""
-            UPDATE dbo.Attendance_Log
-            SET LogoutTime = ?
-            WHERE Attendance_ID = ? AND LogoutTime IS NULL
-        """, datetime.now(), current_professor_id)
+            cursor.execute("""
+                UPDATE dbo.Attendance_Log
+                SET LogoutTime = ?
+                WHERE Attendance_ID = ? AND LogoutTime IS NULL
+            """, datetime.now(), current_professor_id)
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+            conn.close()
 
-        # Clear the stored professor ID
+        # ---------------------------------------------------------
+        # Clear ALL professor-related session data
+        # ---------------------------------------------------------
+        session.pop("professor_authenticated", None)
+        session.pop("professor_id", None)
+        session.pop("professor_name", None)
+        session.pop("prof_2fa_code", None)
+        session.pop("prof_2fa_expiry", None)
+
+        # Clear global ID used for attendance tracking
         current_professor_id = None
 
-        # Send them back to the main check-in page
+        # Back to main check-in page
         return redirect("/")
 
     except Exception as e:
         return f"Error logging out: {str(e)}"
-
 
 
 @app.route("/export_monthly_csv")
@@ -647,6 +741,32 @@ def today_worker():
         "minutes_remaining": minutes_remaining
     })
 
+@app.route("/worker_2fa", methods=["GET", "POST"])
+def worker_2fa():
+    if "worker_2fa_code" not in session:
+        return redirect("/")
+
+    if request.method == "POST":
+        entered = request.form.get("code", "").strip()
+        real_code = session.get("worker_2fa_code")
+        expiry = session.get("worker_2fa_expiry", 0)
+
+        if not real_code or time.time() > expiry:
+            session.pop("worker_2fa_code", None)
+            session.pop("worker_2fa_expiry", None)
+            return render_template("worker_2fa.html",
+                                   error="Code expired. Please swipe again.")
+
+        if entered == real_code:
+            session["worker_authenticated"] = True
+            session.pop("worker_2fa_code", None)
+            session.pop("worker_2fa_expiry", None)
+            return redirect("/student_worker")
+
+        return render_template("worker_2fa.html",
+                               error="Invalid code. Please try again.")
+
+    return render_template("worker_2fa.html")
 
 # ---------------------------------------------------------
 # Worker & Student Pages
@@ -688,8 +808,11 @@ def get_signed_in_users():
 
 @app.route("/student_worker")
 def worker_home():
-    users = get_signed_in_users()
-    return render_template("student_worker.html", users=users)
+    if not session.get("worker_authenticated"):
+        return redirect("/worker_2fa")
+    
+    return render_template("student_worker.html")
+
 
 
 
@@ -882,31 +1005,42 @@ def force_logout_all():
 
 
 # ---------------------------------------------------------
-# WORKER LOGOUT
+# WORKER LOGOUT (Updated for 2FA)
 # ---------------------------------------------------------
 @app.route("/worker_logout")
 def worker_logout():
     worker_id = session.get("worker_id")
 
-    if not worker_id:
+    try:
+        # If worker has an active attendance session, close it
+        if worker_id:
+            conn = connect_db()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                UPDATE dbo.Attendance_Log
+                SET LogoutTime = ?
+                WHERE Attendance_ID = ? AND LogoutTime IS NULL
+            """, datetime.now(), worker_id)
+
+            conn.commit()
+            conn.close()
+
+        # ---------------------------------------------------------
+        # Clear ALL worker-related session data
+        # ---------------------------------------------------------
+        session.pop("worker_id", None)
+        session.pop("worker_name", None)
+        session.pop("worker_authenticated", None)
+        session.pop("worker_2fa_code", None)
+        session.pop("worker_2fa_expiry", None)
+
+        # Return to main check-in page
         return redirect("/")
 
-    conn = connect_db()
-    cursor = conn.cursor()
+    except Exception as e:
+        return f"Error logging out: {str(e)}"
 
-    cursor.execute("""
-        UPDATE dbo.Attendance_Log
-        SET LogoutTime = ?
-        WHERE Attendance_ID = ? AND LogoutTime IS NULL
-    """, datetime.now(), worker_id)
-
-    conn.commit()
-    conn.close()
-
-    # Clear worker session
-    session.pop("worker_id", None)
-
-    return redirect("/")
 
 
 

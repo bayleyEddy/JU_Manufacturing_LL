@@ -7,9 +7,6 @@
     <!-- Font Awesome -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 
-    <!-- Auto-refresh every 10 seconds -->
-    <meta http-equiv="refresh" content="10">
-
     <style>
         body { font-family: Arial; background: #f5f6f8; padding: 20px; }
         .container { max-width: 1000px; margin: auto; }
@@ -107,25 +104,54 @@
 
     <!-- Currently Signed In -->
     <div class="card">
-        <h3>Currently Signed In ({{ users|length }})</h3>
+        <h3>Currently Signed In (<span id="signedInCount">0</span>)</h3>
 
-        <div class="grid">
-            {% for user in users %}
-                <div class="user-card {% if search_result and user.id == search_result.id %}highlight{% endif %}">
-                    <strong>{{ user.first }} {{ user.last }}</strong><br>
-                    ID: {{ user.id }}<br>
-                    Login: {{ user.login }}
-
-                    <!-- Force Logout Button -->
-                    <form method="POST" action="/force_logout" style="margin-top: 5px;">
-                        <input type="hidden" name="student_id" value="{{ user.id }}">
-                        <button class="btn btn-red">Logout</button>
-                    </form>
-                </div>
-            {% endfor %}
+        <div id="signedInList" class="grid">
+            <p>Loading...</p>
         </div>
     </div>
 
 </div>
+
+<!-- LIVE REFRESH SCRIPT -->
+<script>
+function loadSignedInUsers() {
+    fetch("/api/signed_in_users")
+        .then(response => response.json())
+        .then(users => {
+            const container = document.getElementById("signedInList");
+            const count = document.getElementById("signedInCount");
+
+            container.innerHTML = "";
+            count.textContent = users.length;
+
+            if (users.length === 0) {
+                container.innerHTML = "<p>No one is currently signed in.</p>";
+                return;
+            }
+
+            users.forEach(u => {
+                const div = document.createElement("div");
+                div.className = "user-card";
+                div.innerHTML = `
+                    <strong>${u.first} ${u.last}</strong><br>
+                    ID: ${u.id}<br>
+                    Login: ${u.login}<br>
+
+                    <form method="POST" action="/force_logout" style="margin-top: 5px;">
+                        <input type="hidden" name="student_id" value="${u.id}">
+                        <button class="btn btn-red">Logout</button>
+                    </form>
+                `;
+                container.appendChild(div);
+            });
+        });
+}
+
+// Load immediately + refresh every 5 seconds
+loadSignedInUsers();
+setInterval(loadSignedInUsers, 5000);
+</script>
+
 </body>
 </html>

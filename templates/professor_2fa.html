@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Professor Verification</title>
+</head>
+<body>
+    <h1>Professor Verification</h1>
+    <p>A verification code was sent to your email.</p>
+
+    {% if error %}
+        <p style="color:red;">{{ error }}</p>
+    {% endif %}
+
+    <form method="POST">
+        <label>Enter 6-digit code:</label>
+        <input type="text" name="code" required>
+        <button type="submit">Verify</button>
+    </form>
+</body>
+</html>
