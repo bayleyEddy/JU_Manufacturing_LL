@@ -172,6 +172,7 @@
             <form id="searchForm">
                 <input type="text" id="student_id" name="student_id" placeholder="Enter Student ID, Name, or Full Name" required>
                 <button type="submit" class="search-btn">Search</button>
+
             </form>
 
             <div id="searchResults"></div>
@@ -189,7 +190,39 @@
             <p>Loading...</p>
         </div>
 
+        <div class="card">
+            <h3>Assign Student Worker Schedule</h3>
+
+            <form id="assignShiftForm" onsubmit="event.preventDefault(); assignSchedule();">
+
+                <label>Worker:</label>
+                <select id="workerSelect"></select>
+
+                <label>Day of Week:</label>
+                <select id="daySelect">
+                    <option>Monday</option>
+                    <option>Tuesday</option>
+                    <option>Wednesday</option>
+                    <option>Thursday</option>
+                    <option>Friday</option>
+                    <option>Saturday</option>
+                    <option>Sunday</option>
+                </select>
+
+                <label>Start Time:</label>
+                <input type="time" id="startTime">
+
+                <label>End Time:</label>
+                <input type="time" id="endTime">
+
+                <button type="submit" class="search-btn">Assign Shift</button>
+
+            </form>
+
+            <div id="scheduleStatus"></div>
+        </div>
     </div>
+
 
     <!-- RIGHT COLUMN -->
     <div>
@@ -213,9 +246,10 @@
         <canvas id="studentBarChart"></canvas>
         <canvas id="dailyLineChart"></canvas>
 
-        <button onclick="downloadMonthlyCSV()" class="search-btn">
-            Download Monthly CSV
-        </button>
+        <a href="/export_all_csv">
+            <button class="signout-btn">Download Attendance Reports</button>
+        </a>
+
     </div>
 
 
@@ -273,9 +307,53 @@
             <div class="student-box">
                 ${data.first_name} ${data.last_name} 
                 <span class="status-green">✔ Waiver Signed</span>
+
+                <button class="search-btn" style="margin-left:10px;"
+                    onclick="makeWorker(${data.student_id})">
+                    Promote to Student Worker
+                </button>
             </div>
         `;
+
     });
+</script>
+<script>
+    async function loadWorkers() {
+    const res = await fetch("/get_all_workers");
+    const data = await res.json();
+
+    const select = document.getElementById("workerSelect");
+    select.innerHTML = "";
+
+    data.workers.forEach(w => {
+        select.innerHTML += `<option value="${w.worker_id}">
+            ${w.first_name} ${w.last_name}
+        </option>`;
+    });
+}
+
+loadWorkers();
+</script>
+
+<script>
+    function assignSchedule() {
+    const workerId = document.getElementById("workerSelect").value;
+    const day = document.getElementById("daySelect").value;
+    const start = document.getElementById("startTime").value;
+    const end = document.getElementById("endTime").value;
+
+    fetch("/assign_worker_schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `worker_id=${workerId}&day=${day}&start_time=${start}&end_time=${end}`
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById("scheduleStatus").innerHTML =
+            `<p style="color:green;">${data.message}</p>`;
+    });
+}
+
 </script>
 
 <!-- METRICS SCRIPT -->
@@ -365,6 +443,9 @@ function exportMetrics() {
 }
 </script>
 
+
+
+
 <!-- TODAY WORKER SCRIPT -->
 <script>
 async function loadTodayWorker() {
@@ -402,8 +483,37 @@ async function loadTodayWorker() {
     `;
 }
 
+
+
+
+
 loadTodayWorker();
 </script>
+
+
+
+
+<script>
+function makeWorker(studentId) {
+    const email = prompt("Enter the student's email address:");
+
+    if (!email) {
+        alert("Promotion cancelled — email is required.");
+        return;
+    }
+
+    fetch("/make_student_worker", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "student_id=" + studentId + "&email=" + encodeURIComponent(email)
+    })
+    .then(res => res.json())
+    .then(data => {
+        alert(data.message);
+    });
+}
+</script>
+
 
 <script>
 let isLoggedIn = true;
@@ -501,6 +611,8 @@ function loadSignedInUsers() {
 loadSignedInUsers();
 setInterval(loadSignedInUsers, 5000);
 </script>
+
+
 
 
 

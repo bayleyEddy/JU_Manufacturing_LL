@@ -1,0 +1,94 @@
+/* Center the 2FA card on the page */
+.twofa-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 75vh;
+    padding: 20px;
+}
+
+/* The card itself */
+.twofa-card {
+    background: #ffffff;
+    padding: 35px 30px;
+    width: 360px;
+    border-radius: 14px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+    text-align: center;
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* Title */
+.twofa-card h2 {
+    margin-bottom: 8px;
+    font-size: 24px;
+    color: #333;
+}
+
+/* Subtitle */
+.twofa-card p {
+    margin-bottom: 15px;
+    color: #555;
+}
+
+/* Input field */
+.twofa-input {
+    width: 100%;
+    padding: 14px;
+    font-size: 20px;
+    text-align: center;
+    border: 2px solid #d0d0d0;
+    border-radius: 10px;
+    margin-bottom: 18px;
+    transition: border-color 0.2s ease;
+}
+
+.twofa-input:focus {
+    border-color: #4e73df;
+    outline: none;
+}
+
+/* Verify button */
+.twofa-btn {
+    width: 100%;
+    padding: 12px;
+    background: #4e73df;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 17px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.twofa-btn:hover {
+    background: #3b5cc4;
+}
+
+/* Resend button */
+.twofa-resend {
+    margin-top: 15px;
+    background: none;
+    border: none;
+    color: #4e73df;
+    cursor: pointer;
+    font-size: 15px;
+    transition: opacity 0.2s ease;
+}
+
+.twofa-resend:hover {
+    opacity: 0.7;
+    text-decoration: underline;
+}
+
+/* Status message */
+#twofaStatus {
+    margin-top: 12px;
+    font-size: 14px;
+}
+
+/* Smooth fade-in animation */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}

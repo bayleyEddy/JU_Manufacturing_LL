@@ -1,6 +1,8 @@
 from flask import Flask, request, render_template, redirect, jsonify, Response, session, url_for
 # Used to connect to Azure SQL database
 import pyodbc      
+import io
+import zipfile
 import smtplib
 import random
 import time
@@ -129,6 +131,7 @@ def checkin():
             session["prof_2fa_expiry"] = time.time() + 300  # 5 minutes
             session["professor_id"] = student_id
             session["professor_name"] = f"{first_name} {last_name}"
+            session["professor_email"] = PROFESSOR_EMAIL
             session["professor_authenticated"] = False
 
             send_2fa_email(PROFESSOR_EMAIL, code)
@@ -166,6 +169,8 @@ def checkin():
                 # Store worker ID in session
                 session["worker_id"] = student_id
                 session["worker_name"] = f"{first_name} {last_name}"
+                session["worker_email"] = worker_email
+
 
                 # -------------------------------
                 # 2FA for Student Worker
@@ -252,8 +257,8 @@ def checkin():
         # -------------------------------------------------
         cursor.execute("""
             INSERT INTO dbo.Attendance_Log
-            (Att_FirstName, Att_LastName, Attendance_ID, LoginTime, LogoutTime)
-            VALUES (?, ?, ?, ?, NULL)
+            (Att_FirstName, Att_LastName, Attendance_ID, LoginTime, LogoutTime, WaiverOverrideUsed, OverrideGrantedByWorkerID)
+            VALUES (?, ?, ?, ?, NULL, 0, NULL)
         """, first_name, last_name, student_id, current_time)
 
         conn.commit()
@@ -264,6 +269,7 @@ def checkin():
             "redirect": redirect_url
         }
 
+
     except Exception as e:
         return {"message": f"Database Error: {str(e)}"}
 
@@ -272,9 +278,11 @@ def checkin():
 # ---------------------------------------------------------
 @app.route("/professor_2fa", methods=["GET", "POST"])
 def professor_2fa():
-    # If no 2FA in progress, send back to swipe
     if "prof_2fa_code" not in session:
         return redirect("/")
+
+    # Needed for resend functionality
+    session["pending_prof_email"] = PROFESSOR_EMAIL
 
     if request.method == "POST":
         entered = request.form.get("code", "").strip()
@@ -282,7 +290,6 @@ def professor_2fa():
         expiry = session.get("prof_2fa_expiry", 0)
 
         if not real_code or time.time() > expiry:
-            # Expired
             session.pop("prof_2fa_code", None)
             session.pop("prof_2fa_expiry", None)
             return render_template("professor_2fa.html",
@@ -293,11 +300,12 @@ def professor_2fa():
             session.pop("prof_2fa_code", None)
             session.pop("prof_2fa_expiry", None)
             return redirect("/professor_home")
-        else:
-            return render_template("professor_2fa.html",
-                                   error="Invalid code. Please try again.")
+
+        return render_template("professor_2fa.html",
+                               error="Invalid code. Please try again.")
 
     return render_template("professor_2fa.html")
+
 # ---------------------------------------------------------
 
 @app.route("/professor_home")
@@ -483,6 +491,11 @@ def professor_logout():
         return f"Error logging out: {str(e)}"
 
 
+
+
+# ---------------------------------------------------------
+# MONTHLY CSV EXPORT
+# ---------------------------------------------------------
 @app.route("/export_monthly_csv")
 def export_monthly_csv():
     conn = connect_db()
@@ -495,19 +508,24 @@ def export_monthly_csv():
             s.Last_Name,
             SUM(DATEDIFF(MINUTE, a.LoginTime, ISNULL(a.LogoutTime, GETDATE()))) AS TotalMinutes,
             COUNT(*) AS TotalVisits,
-            AVG(DATEDIFF(MINUTE, a.LoginTime, ISNULL(a.LogoutTime, GETDATE()))) AS AvgSessionLength
+            AVG(DATEDIFF(MINUTE, a.LoginTime, ISNULL(a.LogoutTime, GETDATE()))) AS AvgSessionLength,
+            SUM(CASE WHEN a.WaiverOverrideUsed = 1 THEN 1 ELSE 0 END) AS OverrideCount,
+            CASE WHEN sw.Worker_ID IS NOT NULL THEN 1 ELSE 0 END AS IsStudentWorker
         FROM Attendance_Log a
         JOIN Student s ON a.Attendance_ID = s.Student_ID
+        LEFT JOIN Student_Worker sw ON sw.Worker_ID = s.Student_ID
         WHERE a.LoginTime >= DATEADD(DAY, -30, GETDATE())
-        GROUP BY s.Student_ID, s.First_Name, s.Last_Name
+        GROUP BY s.Student_ID, s.First_Name, s.Last_Name, sw.Worker_ID
         ORDER BY TotalMinutes DESC;
     """)
 
     rows = cursor.fetchall()
 
-    output = "Student_ID,First_Name,Last_Name,TotalMinutes,TotalVisits,AvgSessionLength\n"
+    output = "Student_ID,First_Name,Last_Name,TotalMinutes,TotalVisits,AvgSessionLength,OverrideCount,FLAG,StudentWorker\n"
     for r in rows:
-        output += f"{r[0]},{r[1]},{r[2]},{r[3]},{r[4]},{r[5]}\n"
+        flag = "FLAG" if r[6] > 0 else ""
+        student_worker = "YES" if r[7] == 1 else ""
+        output += f"{r[0]},{r[1]},{r[2]},{r[3]},{r[4]},{r[5]},{r[6]},{flag},{student_worker}\n"
 
     return Response(
         output,
@@ -516,15 +534,110 @@ def export_monthly_csv():
     )
 
 
+# ---------------------------------------------------------
+# RAW LOGS CSV EXPORT (with month filter + no professors)
+# ---------------------------------------------------------
+@app.route("/export_raw_logs_csv")
+def export_raw_logs_csv():
+    month_param = request.args.get("month", "").strip()
 
+    # Build month filter
+    month_filter_sql = ""
+    month_filter_value = None
 
+    if month_param:
+        if month_param.isdigit():
+            month_filter_sql = "AND MONTH(a.LoginTime) = ?"
+            month_filter_value = int(month_param)
+        elif "-" in month_param:
+            try:
+                year, month = month_param.split("-")
+                month_filter_sql = "AND YEAR(a.LoginTime) = ? AND MONTH(a.LoginTime) = ?"
+                month_filter_value = (int(year), int(month))
+            except:
+                pass
 
-@app.route("/monthly_dashboard_data")
-def monthly_dashboard_data():
     conn = connect_db()
     cursor = conn.cursor()
 
-    # Student totals
+    # RAW LOGS QUERY (students only, no professors)
+    base_query = f"""
+        SELECT 
+            a.Attendance_ID,
+            s.First_Name,
+            s.Last_Name,
+            a.LoginTime,
+            a.LogoutTime,
+            CAST(a.LoginTime AS DATE) AS SignInDate,
+            DATENAME(month, a.LoginTime) AS MonthName,
+            MONTH(a.LoginTime) AS MonthNumber,
+            DATEPART(week, a.LoginTime) AS WeekNumber,
+            CASE WHEN sw.Worker_ID IS NOT NULL THEN 1 ELSE 0 END AS IsStudentWorker,
+            a.WaiverOverrideUsed,
+            w.Worker_FirstName,
+            w.Worker_LastName
+        FROM Attendance_Log a
+        LEFT JOIN Student s ON a.Attendance_ID = s.Student_ID
+        LEFT JOIN Student_Worker sw ON sw.Worker_ID = a.Attendance_ID
+        LEFT JOIN Student_Worker w ON w.Worker_ID = a.OverrideGrantedByWorkerID
+        WHERE a.Attendance_ID NOT IN (SELECT Teacher_ID FROM Professor)
+        {month_filter_sql}
+        ORDER BY a.LoginTime DESC;
+    """
+
+    if month_filter_value is None:
+        cursor.execute(base_query)
+    else:
+        if isinstance(month_filter_value, tuple):
+            cursor.execute(base_query, month_filter_value[0], month_filter_value[1])
+        else:
+            cursor.execute(base_query, month_filter_value)
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    # BUILD CSV
+    output = (
+        "Student_ID,First_Name,Last_Name,LoginTime,LogoutTime,SignInDate,"
+        "MonthName,MonthNumber,WeekNumber,StudentWorker,FLAG,OverrideGrantedBy\n"
+    )
+
+    for r in rows:
+        student_id = r[0]
+        first = r[1] or ""
+        last = r[2] or ""
+        login = r[3]
+        logout = r[4] or ""
+        sign_in_date = r[5]
+        month_name = r[6]
+        month_number = r[7]
+        week_number = r[8]
+        is_worker = "YES" if r[9] == 1 else ""
+        flag = "FLAG" if r[10] == 1 else ""
+        override_by = f"{r[11]} {r[12]}" if r[11] else ""
+
+        output += (
+            f"{student_id},{first},{last},{login},{logout},{sign_in_date},"
+            f"{month_name},{month_number},{week_number},"
+            f"{is_worker},{flag},{override_by}\n"
+        )
+
+    return Response(
+        output,
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment;filename=raw_attendance_logs.csv"}
+    )
+
+
+# ---------------------------------------------------------
+# ZIP EXPORT (monthly + raw logs)
+# ---------------------------------------------------------
+@app.route("/export_all_csv")
+def export_all_csv():
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    # ---------- MONTHLY CSV ----------
     cursor.execute("""
         SELECT 
             s.Student_ID,
@@ -532,52 +645,77 @@ def monthly_dashboard_data():
             s.Last_Name,
             SUM(DATEDIFF(MINUTE, a.LoginTime, ISNULL(a.LogoutTime, GETDATE()))) AS TotalMinutes,
             COUNT(*) AS TotalVisits,
-            AVG(DATEDIFF(MINUTE, a.LoginTime, ISNULL(a.LogoutTime, GETDATE()))) AS AvgSessionLength
+            AVG(DATEDIFF(MINUTE, a.LoginTime, ISNULL(a.LogoutTime, GETDATE()))) AS AvgSessionLength,
+            SUM(CASE WHEN a.WaiverOverrideUsed = 1 THEN 1 ELSE 0 END) AS OverrideCount,
+            CASE WHEN sw.Worker_ID IS NOT NULL THEN 1 ELSE 0 END AS IsStudentWorker
         FROM Attendance_Log a
         JOIN Student s ON a.Attendance_ID = s.Student_ID
+        LEFT JOIN Student_Worker sw ON sw.Worker_ID = s.Student_ID
         WHERE a.LoginTime >= DATEADD(DAY, -30, GETDATE())
-        GROUP BY s.Student_ID, s.First_Name, s.Last_Name
+        GROUP BY s.Student_ID, s.First_Name, s.Last_Name, sw.Worker_ID
         ORDER BY TotalMinutes DESC;
     """)
 
-    student_rows = cursor.fetchall()
+    monthly_rows = cursor.fetchall()
 
-    students = []
-    for r in student_rows:
-        students.append({
-            "id": r[0],
-            "first": r[1],
-            "last": r[2],
-            "minutes": r[3],
-            "visits": r[4],
-            "avg_session": r[5]
-        })
+    monthly_csv = "Student_ID,First_Name,Last_Name,TotalMinutes,TotalVisits,AvgSessionLength,OverrideCount,FLAG,StudentWorker\n"
+    for r in monthly_rows:
+        flag = "FLAG" if r[6] > 0 else ""
+        student_worker = "YES" if r[7] == 1 else ""
+        monthly_csv += f"{r[0]},{r[1]},{r[2]},{r[3]},{r[4]},{r[5]},{r[6]},{flag},{student_worker}\n"
 
-    # Daily totals
+    # ---------- RAW LOGS CSV ----------
     cursor.execute("""
         SELECT 
-            CAST(LoginTime AS DATE) AS Day,
-            SUM(DATEDIFF(MINUTE, LoginTime, ISNULL(LogoutTime, GETDATE()))) AS TotalMinutes
-        FROM Attendance_Log
-        WHERE LoginTime >= DATEADD(DAY, -30, GETDATE())
-        GROUP BY CAST(LoginTime AS DATE)
-        ORDER BY Day ASC;
+            a.Attendance_ID,
+            s.First_Name,
+            s.Last_Name,
+            a.LoginTime,
+            a.LogoutTime,
+            CAST(a.LoginTime AS DATE) AS SignInDate,
+            CASE WHEN sw.Worker_ID IS NOT NULL THEN 1 ELSE 0 END AS IsStudentWorker,
+            a.WaiverOverrideUsed,
+            w.Worker_FirstName,
+            w.Worker_LastName
+        FROM Attendance_Log a
+        LEFT JOIN Student s ON a.Attendance_ID = s.Student_ID
+        LEFT JOIN Student_Worker sw ON sw.Worker_ID = a.Attendance_ID
+        LEFT JOIN Student_Worker w ON w.Worker_ID = a.OverrideGrantedByWorkerID
+        WHERE a.Attendance_ID NOT IN (SELECT Teacher_ID FROM Professor)
+        ORDER BY a.LoginTime DESC;
     """)
 
-    daily_rows = cursor.fetchall()
+    raw_rows = cursor.fetchall()
+    conn.close()
 
-    daily = []
-    for r in daily_rows:
-        daily.append({
-            "day": r[0].strftime("%Y-%m-%d"),
-            "minutes": r[1]
-        })
+    raw_csv = (
+        "Student_ID,First_Name,Last_Name,LoginTime,LogoutTime,SignInDate,"
+        "StudentWorker,FLAG,OverrideGrantedBy\n"
+    )
 
-    return jsonify({
-        "students": students,
-        "daily": daily
-    })
+    for r in raw_rows:
+        is_worker = "YES" if r[6] == 1 else ""
+        flag = "FLAG" if r[7] == 1 else ""
+        override_by = f"{r[8]} {r[9]}" if r[8] else ""
+        raw_csv += (
+            f"{r[0]},{r[1]},{r[2]},{r[3]},{r[4]},{r[5]},"
+            f"{is_worker},{flag},{override_by}\n"
+        )
 
+    # ---------- BUILD ZIP ----------
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        zip_file.writestr("monthly_report.csv", monthly_csv)
+        zip_file.writestr("raw_attendance_logs.csv", raw_csv)
+
+    zip_buffer.seek(0)
+
+    return Response(
+        zip_buffer,
+        mimetype="application/zip",
+        headers={"Content-Disposition": "attachment;filename=attendance_reports.zip"}
+    )
 
 
 
@@ -741,10 +879,60 @@ def today_worker():
         "minutes_remaining": minutes_remaining
     })
 
+
+@app.route("/assign_worker_schedule", methods=["POST"])
+def assign_worker_schedule():
+    worker_id = request.form.get("worker_id")
+    day = request.form.get("day")
+    start = request.form.get("start_time")
+    end = request.form.get("end_time")
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        MERGE Student_Worker_Schedule AS t
+        USING (SELECT ? AS Worker_ID, ? AS DayOfWeek) AS s
+        ON t.Worker_ID = s.Worker_ID AND t.DayOfWeek = s.DayOfWeek
+        WHEN MATCHED THEN 
+            UPDATE SET StartTime = ?, EndTime = ?
+        WHEN NOT MATCHED THEN
+            INSERT (Worker_ID, DayOfWeek, StartTime, EndTime)
+            VALUES (?, ?, ?, ?);
+    """, worker_id, day, start, end, worker_id, day, start, end)
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True, "message": "Shift assigned successfully"})
+
+    
+@app.route("/get_all_workers")
+def get_all_workers():
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT Worker_ID, Worker_FirstName, Worker_LastName
+        FROM Student_Worker
+    """)
+
+    workers = [
+        {"worker_id": row[0], "first_name": row[1], "last_name": row[2]}
+        for row in cursor.fetchall()
+    ]
+
+    conn.close()
+    return jsonify({"workers": workers})
+
+
 @app.route("/worker_2fa", methods=["GET", "POST"])
 def worker_2fa():
     if "worker_2fa_code" not in session:
         return redirect("/")
+
+    # Needed for resend functionality
+    session["pending_worker_email"] = session.get("worker_email")
 
     if request.method == "POST":
         entered = request.form.get("code", "").strip()
@@ -767,6 +955,81 @@ def worker_2fa():
                                error="Invalid code. Please try again.")
 
     return render_template("worker_2fa.html")
+
+
+
+@app.route("/resend_2fa_code", methods=["POST"])
+def resend_2fa_code():
+    email = session.get("pending_prof_email") or session.get("pending_worker_email")
+
+    if not email:
+        return jsonify({"success": False, "message": "No pending login session found."})
+
+    new_code = str(random.randint(100000, 999999))
+    expiry = time.time() + 300  # 5 minutes
+
+    # Update the correct session keys
+    if session.get("pending_prof_email"):
+        session["prof_2fa_code"] = new_code
+        session["prof_2fa_expiry"] = expiry
+    else:
+        session["worker_2fa_code"] = new_code
+        session["worker_2fa_expiry"] = expiry
+
+    send_2fa_email(email, new_code)
+
+    return jsonify({"success": True, "message": "A new code has been sent to your email."})
+
+
+
+
+
+@app.route("/make_student_worker", methods=["POST"])
+def make_student_worker():
+    student_id = request.form.get("student_id")
+    email = request.form.get("email")
+
+    try:
+        student_id = int(student_id)
+    except:
+        return jsonify({"success": False, "message": "Invalid student ID"})
+
+    if not email:
+        return jsonify({"success": False, "message": "Email is required"})
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    # Get student info
+    cursor.execute("""
+        SELECT First_Name, Last_Name
+        FROM Student
+        WHERE Student_ID = ?
+    """, student_id)
+
+    row = cursor.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "message": "Student not found"})
+
+    first, last = row
+
+    # Check if already a worker
+    cursor.execute("SELECT Worker_ID FROM Student_Worker WHERE Worker_ID = ?", student_id)
+    exists = cursor.fetchone()
+
+    if not exists:
+        cursor.execute("""
+            INSERT INTO Student_Worker (Worker_ID, Worker_FirstName, Worker_LastName, Worker_Email)
+            VALUES (?, ?, ?, ?)
+        """, student_id, first, last, email)
+        conn.commit()
+
+    conn.close()
+
+    return jsonify({"success": True, "message": "Student promoted to Student Worker"})
+
 
 # ---------------------------------------------------------
 # Worker & Student Pages
@@ -930,6 +1193,16 @@ def sign_in_student():
         conn.close()
         return redirect("/student_worker")
 
+    # Determine override flags for logging
+    worker_id = session.get("worker_id")
+    if waiver == 1:
+        waiver_override_used = 0
+        override_worker_id = None
+    else:
+        # waiver not signed, but override_valid is True here
+        waiver_override_used = 1
+        override_worker_id = worker_id
+
     # Check if already signed in
     cursor.execute("""
         SELECT LoginTime
@@ -946,15 +1219,14 @@ def sign_in_student():
     now = datetime.now()
     cursor.execute("""
         INSERT INTO dbo.Attendance_Log
-        (Att_FirstName, Att_LastName, Attendance_ID, LoginTime, LogoutTime)
-        VALUES (?, ?, ?, ?, NULL)
-    """, first_name, last_name, student_id, now)
+        (Att_FirstName, Att_LastName, Attendance_ID, LoginTime, LogoutTime, WaiverOverrideUsed, OverrideGrantedByWorkerID)
+        VALUES (?, ?, ?, ?, NULL, ?, ?)
+    """, first_name, last_name, student_id, now, waiver_override_used, override_worker_id)
 
     conn.commit()
     conn.close()
 
     return redirect("/student_worker")
-
 
 # ---------------------------------------------------------
 # FORCE LOGOUT (Updated)
@@ -1050,25 +1322,31 @@ def worker_logout():
 @app.route("/override_waiver", methods=["POST"])
 def override_waiver():
     student_id = request.form.get("student_id")
+    worker_id = session.get("worker_id")   # ← IMPORTANT
+
+    if not worker_id:
+        return redirect("/student_worker")  # worker not logged in
 
     conn = connect_db()
     cursor = conn.cursor()
 
+    # Insert or update override WITH worker ID
     cursor.execute("""
         MERGE dbo.Temporary_Waiver_Override AS t
-        USING (SELECT ? AS Student_ID) AS s
+        USING (SELECT ? AS Student_ID, ? AS Worker_ID) AS s
         ON t.Student_ID = s.Student_ID
-        WHEN MATCHED THEN UPDATE SET Override_Date = CAST(GETDATE() AS DATE)
-        WHEN NOT MATCHED THEN INSERT (Student_ID, Override_Date)
-        VALUES (s.Student_ID, CAST(GETDATE() AS DATE));
-    """, student_id)
+        WHEN MATCHED THEN 
+            UPDATE SET Override_Date = CAST(GETDATE() AS DATE),
+                       Worker_ID = s.Worker_ID
+        WHEN NOT MATCHED THEN 
+            INSERT (Student_ID, Override_Date, Worker_ID)
+            VALUES (s.Student_ID, CAST(GETDATE() AS DATE), s.Worker_ID);
+    """, student_id, worker_id)
 
     conn.commit()
     conn.close()
 
-    # Redirect back to worker_search WITH student_id
     return redirect(url_for("worker_search", student_id=student_id), code=307)
-
 
 
 @app.route("/api/signed_in_users")
@@ -1115,6 +1393,64 @@ def logout_user():
 
     return redirect("/professor_home")
 
+@app.route("/monthly_dashboard_data")
+def monthly_dashboard_data():
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    # Student totals
+    cursor.execute("""
+        SELECT 
+            s.Student_ID,
+            s.First_Name,
+            s.Last_Name,
+            SUM(DATEDIFF(MINUTE, a.LoginTime, ISNULL(a.LogoutTime, GETDATE()))) AS TotalMinutes,
+            COUNT(*) AS TotalVisits,
+            AVG(DATEDIFF(MINUTE, a.LoginTime, ISNULL(a.LogoutTime, GETDATE()))) AS AvgSessionLength
+        FROM Attendance_Log a
+        JOIN Student s ON a.Attendance_ID = s.Student_ID
+        WHERE a.LoginTime >= DATEADD(DAY, -30, GETDATE())
+        GROUP BY s.Student_ID, s.First_Name, s.Last_Name
+        ORDER BY TotalMinutes DESC;
+    """)
+
+    student_rows = cursor.fetchall()
+
+    students = []
+    for r in student_rows:
+        students.append({
+            "id": r[0],
+            "first": r[1],
+            "last": r[2],
+            "minutes": r[3],
+            "visits": r[4],
+            "avg_session": r[5]
+        })
+
+    # Daily totals
+    cursor.execute("""
+        SELECT 
+            CAST(LoginTime AS DATE) AS Day,
+            SUM(DATEDIFF(MINUTE, LoginTime, ISNULL(LogoutTime, GETDATE()))) AS TotalMinutes
+        FROM Attendance_Log
+        WHERE LoginTime >= DATEADD(DAY, -30, GETDATE())
+        GROUP BY CAST(LoginTime AS DATE)
+        ORDER BY Day ASC;
+    """)
+
+    daily_rows = cursor.fetchall()
+
+    daily = []
+    for r in daily_rows:
+        daily.append({
+            "day": r[0].strftime("%Y-%m-%d"),
+            "minutes": r[1]
+        })
+
+    return jsonify({
+        "students": students,
+        "daily": daily
+    })
 
 # ---------------------------------------------------------
 # Run App

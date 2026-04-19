@@ -2,19 +2,53 @@
 <html>
 <head>
     <title>Worker Verification</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/2fa.css') }}">
+
 </head>
 <body>
-    <h1>Student Worker Verification</h1>
-    <p>A verification code was sent to your email.</p>
+<div class="twofa-container">
+    <div class="twofa-card">
 
-    {% if error %}
-        <p style="color:red;">{{ error }}</p>
-    {% endif %}
+        <h2>Email Verification</h2>
+        <p>Please enter the 6‑digit code sent to your email.</p>
 
-    <form method="POST">
-        <label>Enter 6-digit code:</label>
-        <input type="text" name="code" required>
-        <button type="submit">Verify</button>
-    </form>
+        {% if error %}
+            <p style="color:red; margin-bottom:10px;">{{ error }}</p>
+        {% endif %}
+
+        <form method="POST">
+            <input 
+                type="text" 
+                name="code" 
+                maxlength="6" 
+                class="twofa-input" 
+                placeholder="Enter code"
+                required
+            >
+
+            <button type="submit" class="twofa-btn">Verify Code</button>
+        </form>
+
+        <button class="twofa-resend" onclick="resendCode()">
+            Resend Code
+        </button>
+
+        <p id="twofaStatus"></p>
+
+    </div>
+</div>
+
+<script>
+function resendCode() {
+    fetch("/resend_2fa_code", { method: "POST" })
+    .then(res => res.json())
+    .then(data => {
+        const status = document.getElementById("twofaStatus");
+        status.style.color = data.success ? "green" : "red";
+        status.textContent = data.message;
+    });
+}
+</script>
+
 </body>
 </html>
