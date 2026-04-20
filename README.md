@@ -41,4 +41,8 @@ To successfully run this program, you'll need:
 - Student: 587794
 ## Required dependencies:
 - Flask
-- pyodbc  
+- pyodbc
+## NOTICE
+- Must have the Column names exactly in the picture below on the csv file for it to work on the import csv file option
+<img width="884" height="63" alt="image" src="https://github.com/user-attachments/assets/39ac75c5-aa30-420b-bfc6-89a9ec38d157" />
+
