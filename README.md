@@ -27,3 +27,10 @@ To successfully run this program, you'll need:
   - Stores professor information such as name and ID number
 - dbo.Attendance_Log
   - Stores the timestamps of all user types signing in/out
+## Test User Credential:
+- Professor:123456
+- Student Worker:525838
+- Student: 587794
+## Required dependencies:
+- Flask
+- pyodbc  
