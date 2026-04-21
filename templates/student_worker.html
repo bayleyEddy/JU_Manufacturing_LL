@@ -48,30 +48,28 @@
                 <strong>{{ search_result.first }} {{ search_result.last }}</strong>
                 (ID: {{ search_result.id }})
 
-                <!-- Waiver Status -->
-                {% if search_result.waiver != 1 %}
-                    {% if search_result.override_valid %}
-                        <span style="color:green; margin-left:10px;">
-                            Temporary Waiver Active Today
-                        </span>
-                    {% else %}
-                        <span style="color:red; margin-left:10px;">
-                            Waiver Not Signed
-                        </span>
+                <!-- Waiver + Override Logic -->
+                {% if search_result.waiver == 1 %}
+                    <span style="color:green; margin-left:10px;">Waiver Signed</span>
 
-                        <!-- Override Button -->
-                        <form method="POST" action="/override_waiver" style="display:inline;">
-                            <input type="hidden" name="student_id" value="{{ search_result.id }}">
-                            <button class="btn btn-dark" style="margin-left:10px;">
-                                Override Waiver for Today
-                            </button>
-                        </form>
+                {% elif search_result.override_valid %}
+                    <span style="color:green; margin-left:10px;">Temporary Waiver Active Today</span>
 
-                    {% endif %}
+                {% else %}
+                    <span style="color:red; margin-left:10px;">Waiver Not Signed</span>
+
+                    <!-- Override Button -->
+                    <form method="POST" action="/override_waiver" style="display:inline;">
+                        <input type="hidden" name="student_id" value="{{ search_result.id }}">
+                        <button class="btn btn-dark" style="margin-left:10px;">
+                            Override Waiver for Today
+                        </button>
+                    </form>
                 {% endif %}
 
                 <br>
 
+                <!-- Check if student is already signed in -->
                 {% set signed_in = false %}
                 {% for user in users %}
                     {% if user.id == search_result.id %}
@@ -79,7 +77,10 @@
                     {% endif %}
                 {% endfor %}
 
-                {% if not signed_in %}
+                {% if signed_in %}
+                    <span style="color:green;">Already Signed In</span>
+
+                {% else %}
                     {% if search_result.waiver == 1 or search_result.override_valid %}
                         <!-- Sign In Button -->
                         <form method="POST" action="/sign_in_student" style="display:inline;">
@@ -91,8 +92,6 @@
                             Cannot sign in — waiver not signed and no override active.
                         </p>
                     {% endif %}
-                {% else %}
-                    <span style="color:green;">Already Signed In</span>
                 {% endif %}
             </p>
         {% endif %}

@@ -12,9 +12,7 @@
             padding: 30px;
         }
 
-        h1 {
-            margin: 0;
-        }
+        h1 { margin: 0; }
 
         /* Top Bar */
         .top-bar {
@@ -32,10 +30,7 @@
             cursor: pointer;
             transition: 0.2s;
         }
-
-        .signout-btn:hover {
-            background: #f3f4f6;
-        }
+        .signout-btn:hover { background: #f3f4f6; }
 
         /* Dashboard Grid */
         .dashboard {
@@ -58,29 +53,16 @@
             margin-bottom: 12px;
         }
 
-        /* Scrollable card class */
+        /* Scrollable */
         .scrollable {
             max-height: 250px;
             overflow-y: auto;
             padding-right: 10px;
         }
+        .scrollable::-webkit-scrollbar { width: 6px; }
+        .scrollable::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
 
-        /* Optional: nicer scrollbar */
-        .scrollable::-webkit-scrollbar {
-            width: 6px;
-        }
-        .scrollable::-webkit-scrollbar-thumb {
-            background-color: #cbd5e1;
-            border-radius: 4px;
-        }
-        .scrollable::-webkit-scrollbar-thumb:hover {
-            background-color: #94a3b8;
-        }
-
-        .status-green {
-            color: #16a34a;
-            font-weight: bold;
-        }
+        .status-green { color: #16a34a; font-weight: bold; }
 
         .student-box {
             padding: 14px;
@@ -90,12 +72,14 @@
             background: #fafafa;
         }
 
-        input[type="text"] {
+        input[type="text"], input[type="time"], select {
             padding: 10px;
-            width: 75%;
+            width: 100%;
             border-radius: 8px;
             border: 1px solid #cbd5e1;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
+            box-sizing: border-box;
+            font-size: 14px;
         }
 
         button {
@@ -110,28 +94,16 @@
             background-color: #1f2937;
             color: white;
         }
+        .search-btn:hover { background-color: #111827; }
 
-        .search-btn:hover {
-            background-color: #111827;
-        }
-
-        .attendance-list {
-            margin-top: 12px;
-        }
-
-        .attendance-list li {
-            margin-bottom: 6px;
-        }
+        .attendance-list li { margin-bottom: 6px; }
 
         @media(max-width: 1000px) {
-            .dashboard {
-                grid-template-columns: 1fr;
-            }
+            .dashboard { grid-template-columns: 1fr; }
         }
     </style>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
 </head>
 
 <body>
@@ -141,13 +113,9 @@
         <h1>Professor Dashboard</h1>
         <p>Welcome</p>
     </div>
-
     <a href="/professor_logout" onclick="isLoggedIn = false;">
         <button class="signout-btn">Sign Out</button>
     </a>
-
-
-
 </div>
 
 <div class="dashboard">
@@ -158,23 +126,17 @@
         <!-- Currently Signed In -->
         <div class="card">
             <h3>Currently Signed In (<span id="signedInCount">0</span>)</h3>
-
-            <div id="signedInList">
-                <p>Loading...</p>
-            </div>
-
+            <div id="signedInList"><p>Loading...</p></div>
         </div>
 
         <!-- Search Student -->
         <div class="card">
             <h3>Search Student History</h3>
-
             <form id="searchForm">
-                <input type="text" id="student_id" name="student_id" placeholder="Enter Student ID, Name, or Full Name" required>
+                <input type="text" id="student_id" name="student_id"
+                       placeholder="Enter Student ID, Name, or Full Name" required>
                 <button type="submit" class="search-btn">Search</button>
-
             </form>
-
             <div id="searchResults"></div>
         </div>
 
@@ -184,15 +146,15 @@
             <p>Loading...</p>
         </div>
 
-        <!-- Scrollable waiver card -->
+        <!-- Waiver List -->
         <div class="card scrollable" id="waiverCard">
             <h3>Students Missing Liability Waiver</h3>
             <p>Loading...</p>
         </div>
 
+        <!-- Assign Worker Schedule -->
         <div class="card">
             <h3>Assign Student Worker Schedule</h3>
-
             <form id="assignShiftForm" onsubmit="event.preventDefault(); assignSchedule();">
 
                 <label>Worker:</label>
@@ -200,13 +162,8 @@
 
                 <label>Day of Week:</label>
                 <select id="daySelect">
-                    <option>Monday</option>
-                    <option>Tuesday</option>
-                    <option>Wednesday</option>
-                    <option>Thursday</option>
-                    <option>Friday</option>
-                    <option>Saturday</option>
-                    <option>Sunday</option>
+                    <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+                    <option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option>
                 </select>
 
                 <label>Start Time:</label>
@@ -216,13 +173,21 @@
                 <input type="time" id="endTime">
 
                 <button type="submit" class="search-btn">Assign Shift</button>
-
             </form>
-
             <div id="scheduleStatus"></div>
         </div>
-    </div>
 
+        <!-- Upload CSV Replace -->
+        <div class="card">
+            <h3>Upload CSV (Replace Student Database)</h3>
+            <input type="file" id="csvFile" accept=".csv" />
+            <button onclick="uploadCSV()" class="search-btn" style="margin-top:8px;">
+                Upload & Replace
+            </button>
+            <p id="uploadStatus"></p>
+        </div>
+
+    </div>
 
     <!-- RIGHT COLUMN -->
     <div>
@@ -239,19 +204,56 @@
             <p>Search for a student to view details.</p>
         </div>
 
+        <!-- Monthly Usage Dashboard (YOUR ORIGINAL CHARTS) -->
+        <div class="card">
+            <h3>Monthly Usage Dashboard</h3>
 
-    <div class="card">
-        <h3>Monthly Usage Dashboard</h3>
 
-        <canvas id="studentBarChart"></canvas>
-        <canvas id="dailyLineChart"></canvas>
+            <label for="chartMonthSelect"><strong>Select Month:</strong></label>
+            <select id="chartMonthSelect" onchange="loadMonthlyDashboard()" style="margin-bottom:10px;">
+                <option value="all">All Months</option>
+                <option value="1">January</option>
+                <option value="2">February</option>
+                <option value="3">March</option>
+                <option value="4">April</option>
+                <option value="5">May</option>
+                <option value="6">June</option>
+                <option value="7">July</option>
+                <option value="8">August</option>
+                <option value="9">September</option>
+                <option value="10">October</option>
+                <option value="11">November</option>
+                <option value="12">December</option>
+            </select>
 
-        <a href="/export_all_csv">
-            <button class="signout-btn">Download Attendance Reports</button>
-        </a>
 
-    </div>
 
+            <canvas id="studentBarChart"></canvas>
+            <canvas id="dailyLineChart"></canvas>
+
+            <label for="monthSelect"><strong>Select Month:</strong></label>
+            <select id="monthSelect" style="margin-bottom:10px;">
+                <option value="all">All Months</option>
+                <option value="1">January</option>
+                <option value="2">February</option>
+                <option value="3">March</option>
+                <option value="4">April</option>
+                <option value="5">May</option>
+                <option value="6">June</option>
+                <option value="7">July</option>
+                <option value="8">August</option>
+                <option value="9">September</option>
+                <option value="10">October</option>
+                <option value="11">November</option>
+                <option value="12">December</option>
+            </select>
+
+            <button class="signout-btn" onclick="downloadReports()">
+                Download Attendance Reports
+            </button>
+
+
+        </div>
 
     </div>
 
@@ -259,66 +261,76 @@
 
 <!-- SEARCH SCRIPT -->
 <script>
-    const form = document.getElementById("searchForm");
-    const profileCard = document.getElementById("profileCard");
-    const searchResults = document.getElementById("searchResults");
+const form = document.getElementById("searchForm");
+const profileCard = document.getElementById("profileCard");
+const searchResults = document.getElementById("searchResults");
 
-    form.addEventListener("submit", async function(e) {
-        e.preventDefault();
+form.addEventListener("submit", async function(e) {
+    e.preventDefault();
+    const formData = new FormData(form);
+    const response = await fetch("/professor_search", { method: "POST", body: formData });
+    const data = await response.json();
 
-        const formData = new FormData(form);
+    if (data.error) {
+        searchResults.innerHTML = `<p style='color:red;'>${data.error}</p>`;
+        return;
+    }
 
-        const response = await fetch("/professor_search", {
-            method: "POST",
-            body: formData
+    profileCard.innerHTML = `
+        <h3>${data.first_name} ${data.last_name}</h3>
+        <p><strong>Student ID:</strong> ${data.student_id}</p>
+        <p><strong>Waiver:</strong> <span class="status-green">${data.waiver}</span></p>
+        <h4>Attendance History</h4>
+    `;
+
+    if (data.logs.length === 0) {
+        profileCard.innerHTML += "<p>No attendance records found.</p>";
+    } else {
+        profileCard.innerHTML += "<ul class='attendance-list'>";
+        data.logs.forEach(log => {
+            profileCard.innerHTML += `<li>Login: ${log.login} — Logout: ${log.logout}</li>`;
         });
+        profileCard.innerHTML += "</ul>";
+    }
 
-        const data = await response.json();
-
-        if (data.error) {
-            searchResults.innerHTML = `<p style='color:red;'>${data.error}</p>`;
-            return;
-        }
-
-        profileCard.innerHTML = `
-            <h3>${data.first_name} ${data.last_name}</h3>
-            <p><strong>Student ID:</strong> ${data.student_id}</p>
-            <p><strong>Waiver:</strong> 
-                <span class="status-green">${data.waiver}</span>
-            </p>
-            <h4>Attendance History</h4>
-        `;
-
-        if (data.logs.length === 0) {
-            profileCard.innerHTML += "<p>No attendance records found.</p>";
-        } else {
-            profileCard.innerHTML += "<ul class='attendance-list'>";
-            data.logs.forEach(log => {
-                profileCard.innerHTML += `
-                    <li>
-                        Login: ${log.login} — Logout: ${log.logout}
-                    </li>
-                `;
-            });
-            profileCard.innerHTML += "</ul>";
-        }
-
-        searchResults.innerHTML = `
-            <div class="student-box">
-                ${data.first_name} ${data.last_name} 
-                <span class="status-green">✔ Waiver Signed</span>
-
-                <button class="search-btn" style="margin-left:10px;"
-                    onclick="makeWorker(${data.student_id})">
-                    Promote to Student Worker
-                </button>
-            </div>
-        `;
-
-    });
+    searchResults.innerHTML = `
+        <div class="student-box">
+            ${data.first_name} ${data.last_name}
+            <span class="status-green">✔ Waiver Signed</span>
+            <button class="search-btn" style="margin-left:10px;"
+                onclick="makeWorker(${data.student_id})">
+                Promote to Student Worker
+            </button>
+        </div>
+    `;
+});
 </script>
+
+<!-- PROMOTE TO WORKER -->
 <script>
-    async function loadWorkers() {
+function makeWorker(studentId) {
+    const email = prompt("Enter the student's email address:");
+    if (!email) {
+        alert("Promotion cancelled — email is required.");
+        return;
+    }
+
+    fetch("/make_student_worker", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "student_id=" + studentId + "&email=" + encodeURIComponent(email)
+    })
+    .then(res => res.json())
+    .then(data => {
+        alert(data.message);
+        loadWorkers();
+    });
+}
+</script>
+
+<!-- LOAD WORKERS -->
+<script>
+async function loadWorkers() {
     const res = await fetch("/get_all_workers");
     const data = await res.json();
 
@@ -331,12 +343,14 @@
         </option>`;
     });
 }
-
 loadWorkers();
 </script>
 
+<!-- ASSIGN SCHEDULE -->
 <script>
-    function assignSchedule() {
+function assignSchedule() {
+    console.log("assignSchedule() fired");  // DEBUG
+
     const workerId = document.getElementById("workerSelect").value;
     const day = document.getElementById("daySelect").value;
     const start = document.getElementById("startTime").value;
@@ -349,6 +363,7 @@ loadWorkers();
     })
     .then(res => res.json())
     .then(data => {
+        console.log("Server response:", data);  // DEBUG
         document.getElementById("scheduleStatus").innerHTML =
             `<p style="color:green;">${data.message}</p>`;
     });
@@ -356,102 +371,55 @@ loadWorkers();
 
 </script>
 
+
+
+
+
 <!-- METRICS SCRIPT -->
 <script>
 async function loadMetrics() {
     const response = await fetch("/professor_metrics");
     const data = await response.json();
-
     const metricsCard = document.getElementById("metricsCard");
 
-    if (data.error) {
-        metricsCard.innerHTML = `<p style='color:red;'>${data.error}</p>`;
-        return;
-    }
-
-    if (data.top_students.length === 0) {
-        metricsCard.innerHTML = "<p>No data available for this week.</p>";
-        return;
-    }
+    if (data.error) { metricsCard.innerHTML = `<p style='color:red;'>${data.error}</p>`; return; }
+    if (data.top_students.length === 0) { metricsCard.innerHTML = "<p>No data available for this week.</p>"; return; }
 
     let html = "<ul class='attendance-list'>";
-
     data.top_students.forEach(s => {
-        html += `
-            <li>
-                <strong>${s.first_name} ${s.last_name}</strong><br>
-                ${s.minutes} minutes this week
-            </li>
-        `;
+        html += `<li><strong>${s.first_name} ${s.last_name}</strong><br>${s.minutes} minutes this week</li>`;
     });
-
     html += "</ul>";
-
-    metricsCard.innerHTML = `
-        <h3>Weekly Top 5 Students</h3>
-        ${html}
-    `;
+    metricsCard.innerHTML = `<h3>Weekly Top 5 Students</h3>${html}`;
 }
-
 loadMetrics();
 </script>
 
-<!-- WAIVER LIST SCRIPT -->
+<!-- WAIVER LIST -->
 <script>
 async function loadWaiverList() {
     const response = await fetch("/students_without_waivers");
     const data = await response.json();
-
     const waiverCard = document.getElementById("waiverCard");
 
-    if (data.error) {
-        waiverCard.innerHTML = `<p style='color:red;'>${data.error}</p>`;
-        return;
-    }
-
-    if (data.students.length === 0) {
-        waiverCard.innerHTML = "<p>All students have signed the waiver.</p>";
-        return;
-    }
+    if (data.error) { waiverCard.innerHTML = `<p style='color:red;'>${data.error}</p>`; return; }
+    if (data.students.length === 0) { waiverCard.innerHTML = "<p>All students have signed the waiver.</p>"; return; }
 
     let html = "<ul class='attendance-list'>";
-
     data.students.forEach(s => {
-        html += `
-            <li>
-                <strong>${s.first_name} ${s.last_name}</strong><br>
-                ID: ${s.student_id}
-            </li>
-        `;
+        html += `<li><strong>${s.first_name} ${s.last_name}</strong><br>ID: ${s.student_id}</li>`;
     });
-
     html += "</ul>";
-
-    waiverCard.innerHTML = `
-        <h3>Students Missing Liability Waiver</h3>
-        ${html}
-    `;
+    waiverCard.innerHTML = `<h3>Students Missing Liability Waiver</h3>${html}`;
 }
-
 loadWaiverList();
 </script>
 
-<!-- EXPORT SCRIPT -->
-<script>
-function exportMetrics() {
-    window.location.href = "/export_weekly_metrics";
-}
-</script>
-
-
-
-
-<!-- TODAY WORKER SCRIPT -->
+<!-- TODAY WORKER -->
 <script>
 async function loadTodayWorker() {
     const response = await fetch("/today_worker");
     const data = await response.json();
-
     const card = document.getElementById("todayWorkerCard");
 
     if (data.error) {
@@ -468,113 +436,87 @@ async function loadTodayWorker() {
         <h3>Today's Student Worker</h3>
         <p><strong>${data.first_name} ${data.last_name}</strong></p>
         <p><strong>Shift:</strong> ${data.start} – ${data.end}</p>
-        <p><strong>Time Worked:</strong> 
-            ${isNaN(data.minutes_worked) 
-                ? data.minutes_worked 
-                : data.minutes_worked + " minutes"}
-        </p>
-
-        <p><strong>Time Remaining:</strong> 
-            ${data.minutes_remaining === "Shift Ended" 
-                ? "Shift Ended" 
-                : data.minutes_remaining + " minutes"}
-        </p>
-
+        <p><strong>Time Worked:</strong> ${data.minutes_worked} minutes</p>
+        <p><strong>Time Remaining:</strong> ${data.minutes_remaining}</p>
     `;
 }
-
-
-
-
-
 loadTodayWorker();
 </script>
 
-
-
-
+<!-- ORIGINAL MONTHLY CHARTS -->
 <script>
-function makeWorker(studentId) {
-    const email = prompt("Enter the student's email address:");
+let barChart = null;
+let lineChart = null;
 
-    if (!email) {
-        alert("Promotion cancelled — email is required.");
+async function loadMonthlyDashboard() {
+    const month = document.getElementById("chartMonthSelect").value;
+
+    const response = await fetch(`/monthly_dashboard_data?month=${month}`);
+    const data = await response.json();
+
+    // Destroy old charts before creating new ones
+    if (barChart) barChart.destroy();
+    if (lineChart) lineChart.destroy();
+
+    // Bar Chart
+    barChart = new Chart(document.getElementById("studentBarChart"), {
+        type: "bar",
+        data: {
+            labels: data.students.map(s => `${s.first} ${s.last}`),
+            datasets: [{
+                label: "Total Minutes",
+                data: data.students.map(s => s.minutes),
+                backgroundColor: "#4e73df"
+            }]
+        }
+    });
+
+    // Line Chart
+    lineChart = new Chart(document.getElementById("dailyLineChart"), {
+        type: "line",
+        data: {
+            labels: data.daily.map(d => d.day),
+            datasets: [{
+                label: "Daily Total Minutes",
+                data: data.daily.map(d => d.minutes),
+                borderColor: "#1cc88a",
+                fill: false
+            }]
+        }
+    });
+}
+
+</script>
+
+<!-- CSV UPLOAD -->
+<script>
+async function uploadCSV() {
+    const fileInput = document.getElementById("csvFile");
+    const status = document.getElementById("uploadStatus");
+
+    if (fileInput.files.length === 0) {
+        status.innerHTML = "<span style='color:red;'>Please select a CSV file.</span>";
         return;
     }
 
-    fetch("/make_student_worker", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "student_id=" + studentId + "&email=" + encodeURIComponent(email)
-    })
-    .then(res => res.json())
-    .then(data => {
-        alert(data.message);
-    });
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+
+    const confirmReplace = confirm("WARNING: This will DELETE all current student data and replace it. Continue?");
+    if (!confirmReplace) return;
+
+    const response = await fetch("/upload_csv_replace", { method: "POST", body: formData });
+    const result = await response.json();
+
+    if (result.success) {
+        status.innerHTML = "<span style='color:green;'>Database replaced successfully.</span>";
+    } else {
+        status.innerHTML = `<span style='color:red;'>${result.error}</span>`;
+    }
 }
 </script>
 
-
-<script>
-let isLoggedIn = true;
-
-window.addEventListener("beforeunload", function (e) {
-    if (isLoggedIn) {
-        e.preventDefault();
-        e.returnValue = "Please click the Sign Out button to properly record your logout.";
-        return "Please click the Sign Out button to properly record your logout.";
-    }
-});
-</script>
-
-<script>
-    async function loadMonthlyDashboard() {
-        const response = await fetch("/monthly_dashboard_data");
-        const data = await response.json();
-
-        // ----- Bar Chart (Students) -----
-        const names = data.students.map(s => `${s.first} ${s.last}`);
-        const minutes = data.students.map(s => s.minutes);
-
-        new Chart(document.getElementById("studentBarChart"), {
-            type: "bar",
-            data: {
-                labels: names,
-                datasets: [{
-                    label: "Total Minutes (Last 30 Days)",
-                    data: minutes,
-                    backgroundColor: "#4e73df"
-                }]
-            }
-        });
-
-        // ----- Line Chart (Daily Usage) -----
-        const days = data.daily.map(d => d.day);
-        const dailyMinutes = data.daily.map(d => d.minutes);
-
-        new Chart(document.getElementById("dailyLineChart"), {
-            type: "line",
-            data: {
-                labels: days,
-                datasets: [{
-                    label: "Daily Total Minutes",
-                    data: dailyMinutes,
-                    borderColor: "#1cc88a",
-                    fill: false
-                }]
-            }
-        });
-    }
-
-    loadMonthlyDashboard();
-
-    function downloadMonthlyCSV() {
-    isLoggedIn = false;
-    window.location.href = "/export_monthly_csv";
-}
-</script>
-
-
+<!-- SIGNED-IN USERS -->
 <script>
 function loadSignedInUsers() {
     fetch("/api/signed_in_users")
@@ -585,6 +527,7 @@ function loadSignedInUsers() {
 
             if (users.length === 0) {
                 container.innerHTML = "<p>No one is currently signed in.</p>";
+                document.getElementById("signedInCount").textContent = 0;
                 return;
             }
 
@@ -595,28 +538,45 @@ function loadSignedInUsers() {
                     <strong>${u.first} ${u.last}</strong><br>
                     ID: ${u.id}<br>
                     Login: ${u.login}<br>
-
                     <form method="POST" action="/logout_user" style="margin-top: 5px;">
                         <input type="hidden" name="student_id" value="${u.id}">
-                        <button class="btn btn-danger btn-sm">Logout</button>
+                        <button class="search-btn" style="background:#dc2626;">Logout</button>
                     </form>
                 `;
-                document.getElementById("signedInCount").textContent = users.length;
                 container.appendChild(div);
             });
+
+            document.getElementById("signedInCount").textContent = users.length;
         });
 }
-
-// Load immediately and refresh every 5 seconds
 loadSignedInUsers();
 setInterval(loadSignedInUsers, 5000);
 </script>
 
+<script>
+    function downloadReports() {
+        isLoggedIn = false;
 
+        const month = document.getElementById("monthSelect").value;
 
+        if (month === "all") {
+            window.location.href = "/export_all_csv?month=all";
+        } else {
+            window.location.href = `/export_all_csv?month=${month}`;
+        }
+    }
+</script>
 
-
-
+<!-- BEFORE UNLOAD GUARD -->
+<script>
+let isLoggedIn = true;
+window.addEventListener("beforeunload", function (e) {
+    if (isLoggedIn) {
+        e.preventDefault();
+        e.returnValue = "Please click the Sign Out button to properly record your logout.";
+    }
+});
+</script>
 
 </body>
 </html>

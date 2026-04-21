@@ -42,64 +42,82 @@
         <form id="checkinForm">
             <label>Student ID:</label><br>
             <input type="text" id="student_id" name="student_id" required autofocus><br>
-            <button type="submit">Check In / Out</button>
+            <button type="submit" id="submitBtn">Check In / Out</button>
         </form>
 
         <div id="alertBox"></div>
 
     </div>
 
-    <script>
-        const input = document.getElementById("student_id");
-        const form = document.getElementById("checkinForm");
+<script>
+    const input = document.getElementById("student_id");
+    const form = document.getElementById("checkinForm");
+    const button = document.getElementById("submitBtn");
 
-        // Auto-process card swipe
-        input.addEventListener("input", function () {
-            let raw = this.value;
+    let cooldown = false;
 
-            if (raw.includes(";") && raw.includes("=") && raw.endsWith("?")) {
-                let track2 = raw.split(";")[1];
-                let parts = track2.split("=");
-                let discretionary = parts[1].replace("?", "");
-                let id = discretionary.slice(-6);
+    // Auto-process card swipe
+    input.addEventListener("input", function () {
+        let raw = this.value;
 
-                this.value = id;
-                this.blur();
-                form.requestSubmit();
-            }
+        if (raw.includes(";") && raw.includes("=") && raw.endsWith("?")) {
+            let track2 = raw.split(";")[1];
+            let parts = track2.split("=");
+            let discretionary = parts[1].replace("?", "");
+            let id = discretionary.slice(-6);
+
+            this.value = id;
+            this.blur();
+            form.requestSubmit();
+        }
+    });
+
+    // Submit handler with cooldown + redirect logic
+    form.addEventListener("submit", async function(e) {
+        e.preventDefault();
+
+        // Block if still in cooldown
+        if (cooldown) return;
+
+        cooldown = true;
+        button.disabled = true;
+        button.textContent = "Processing...";
+
+        const formData = new FormData(this);
+
+        const response = await fetch("/checkin", {
+            method: "POST",
+            body: formData
         });
 
-        // Submit handler with redirect support
-        form.addEventListener("submit", async function(e) {
-            e.preventDefault();
+        const data = await response.json();
 
-            const formData = new FormData(this);
+        const alertBox = document.getElementById("alertBox");
+        alertBox.textContent = data.message;
+        alertBox.style.display = "block";
 
-            const response = await fetch("/checkin", {
-                method: "POST",
-                body: formData
-            });
-
-            const data = await response.json();
-
-            const alertBox = document.getElementById("alertBox");
-            alertBox.textContent = data.message;
-            alertBox.style.display = "block";
-
-            // Redirect ONLY if the user is NOT a regular student
-            if (data.redirect && !data.redirect.includes("student_home")) {
-                setTimeout(() => {
-                    window.location.href = data.redirect;
-                }, 1200);
-            }
-
+        // Redirect ONLY if not student home
+        if (data.redirect && !data.redirect.includes("student_home")) {
             setTimeout(() => {
-                alertBox.style.display = "none";
-                input.value = "";
-                input.focus();
-            }, 5000);
-        });
-    </script>
+                window.location.href = data.redirect;
+            }, 1200);
+        }
+
+        // Reset cooldown after 3 seconds
+        setTimeout(() => {
+            cooldown = false;
+            button.disabled = false;
+            button.textContent = "Check In / Out";
+        }, 3000);
+
+        // Clear alert + reset input
+        setTimeout(() => {
+            alertBox.style.display = "none";
+            input.value = "";
+            input.focus();
+        }, 5000);
+    });
+</script>
 
 </body>
 </html>
