@@ -279,7 +279,13 @@ form.addEventListener("submit", async function(e) {
     profileCard.innerHTML = `
         <h3>${data.first_name} ${data.last_name}</h3>
         <p><strong>Student ID:</strong> ${data.student_id}</p>
-        <p><strong>Waiver:</strong> <span class="status-green">${data.waiver}</span></p>
+        <p><strong>Waiver:</strong> 
+            ${
+                Number(data.waiver) === 1
+                ? `<span class="status-green">Yes</span>`
+                : `<span style="color:red; font-weight:bold;">No</span>`
+            }
+        </p>
         <h4>Attendance History</h4>
     `;
 
@@ -296,13 +302,18 @@ form.addEventListener("submit", async function(e) {
     searchResults.innerHTML = `
         <div class="student-box">
             ${data.first_name} ${data.last_name}
-            <span class="status-green">✔ Waiver Signed</span>
+            ${
+                Number(data.waiver) === 1
+                ? `<span class="status-green">✔ Waiver Signed</span>`
+                : `<span style="color:red; font-weight:bold;">✘ Waiver Not Signed</span>`
+            }
             <button class="search-btn" style="margin-left:10px;"
                 onclick="makeWorker(${data.student_id})">
                 Promote to Student Worker
             </button>
         </div>
     `;
+
 });
 </script>
 

@@ -3,14 +3,17 @@
 <head>
     <title>Professor Verification</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/2fa.css') }}">
-
 </head>
 <body>
+
 <div class="twofa-container">
     <div class="twofa-card">
 
         <h2>Email Verification</h2>
         <p>Please enter the 6‑digit code sent to your email.</p>
+        <p style="color:#555; font-size:14px;">
+            <strong>Note:</strong> Your verification code expires in 5 minutes.
+        </p>
 
         {% if error %}
             <p style="color:red; margin-bottom:10px;">{{ error }}</p>

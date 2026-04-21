@@ -359,8 +359,9 @@ def resend_2fa_code():
 def professor_home():
     return render_template("professor_home.html")
 
+
 # ---------------------------------------------------------
-# Professor Search Route
+# Professor Search
 # ---------------------------------------------------------
 @app.route("/professor_search", methods=["POST"])
 def professor_search():
@@ -400,7 +401,9 @@ def professor_search():
             return {"error": "No matching student found"}
 
         student_id, first_name, last_name, waiver = student
-        waiver_text = "Yes" if waiver == 1 else "No"
+
+        # Normalize waiver to 0 or 1
+        waiver = 1 if waiver in (1, True, '1', '1 ', ' 1') else 0
 
         cursor.execute("""
             SELECT LoginTime, LogoutTime
@@ -423,12 +426,13 @@ def professor_search():
             "first_name": first_name,
             "last_name": last_name,
             "student_id": student_id,
-            "waiver": waiver_text,
+            "waiver": waiver,   # Now numeric
             "logs": log_list
         }
 
     except Exception as e:
         return {"error": f"Database Error: {str(e)}"}
+
 
 # ---------------------------------------------------------
 # Professor Metrics Route
@@ -704,6 +708,32 @@ def sign_in_student():
         1 if override_valid else 0,
         session.get("worker_id")
     )
+
+    conn.commit()
+    conn.close()
+
+    return redirect("/student_worker")
+
+
+# ---------------------------------------------------------
+# LOGOUT SELECT USERS
+# ---------------------------------------------------------
+@app.route("/force_logout", methods=["POST"])
+def force_logout():
+    student_id = request.form.get("student_id")
+
+    if not student_id:
+        return redirect("/student_worker")
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    # Log out the student by setting LogoutTime
+    cursor.execute("""
+        UPDATE dbo.Attendance_Log
+        SET LogoutTime = GETDATE()
+        WHERE Attendance_ID = ? AND LogoutTime IS NULL
+    """, student_id)
 
     conn.commit()
     conn.close()
